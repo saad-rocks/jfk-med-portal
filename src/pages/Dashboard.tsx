@@ -5,7 +5,18 @@ import { Button } from "../components/ui/button";
 import { PageHeader } from "../components/layout/PageHeader";
 import { useRole } from "../hooks/useRole";
 import { listCourses } from "../lib/courses";
+import { listEnrollmentsForStudent, listEnrollments } from "../lib/enrollments";
 import { getUserStats } from "../lib/users";
+import { 
+  getCurrentSessionFromDB, 
+  getNextSession, 
+  getAllSessions, 
+  getSessionDisplayName, 
+  getSessionStatus, 
+  getSessionProgress,
+  initializeDefaultSessions,
+  type Session 
+} from "../lib/sessions";
 
 // Dashboard Component
 import { 
@@ -37,7 +48,10 @@ function Dashboard() {
   const safeRole = role || 'student';
   const safeMdYear = mdYear || undefined;
   const [courses, setCourses] = useState<Array<any>>([]);
+  const [enrollments, setEnrollments] = useState<Array<any>>([]);
+  const [courseEnrollments, setCourseEnrollments] = useState<{[courseId: string]: number}>({});
   const [coursesLoading, setCoursesLoading] = useState(true);
+  const [enrollmentsLoading, setEnrollmentsLoading] = useState(true);
   const [userStats, setUserStats] = useState<{
     totalUsers: number;
     students: number;
@@ -46,6 +60,9 @@ function Dashboard() {
     activeUsers: number;
   } | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
+  const [currentSession, setCurrentSession] = useState<Session | null>(null);
+  const [nextSession, setNextSession] = useState<Session | null>(null);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
 
   useEffect(() => {
     const fetchCourses = async () => {
@@ -56,6 +73,38 @@ function Dashboard() {
         console.error('Failed to fetch courses:', error);
       } finally {
         setCoursesLoading(false);
+      }
+    };
+
+    const fetchEnrollments = async () => {
+      if (safeRole === 'student' && safeUser?.uid) {
+        try {
+          const studentEnrollments = await listEnrollmentsForStudent(safeUser.uid);
+          setEnrollments(studentEnrollments);
+        } catch (error) {
+          console.error('Failed to fetch enrollments:', error);
+        } finally {
+          setEnrollmentsLoading(false);
+        }
+      } else {
+        setEnrollmentsLoading(false);
+      }
+    };
+
+    const fetchCourseEnrollments = async () => {
+      if (safeRole === 'admin' && courses.length > 0) {
+        try {
+          // For admins, fetch enrollment counts for all courses
+          const enrollmentCounts: {[courseId: string]: number} = {};
+          for (const course of courses) {
+            const courseEnrollments = await listEnrollments({ courseId: course.id });
+            const activeEnrollments = courseEnrollments.filter(e => e.status === 'enrolled');
+            enrollmentCounts[course.id] = activeEnrollments.length;
+          }
+          setCourseEnrollments(enrollmentCounts);
+        } catch (error) {
+          console.error('Failed to fetch course enrollments:', error);
+        }
       }
     };
 
@@ -78,16 +127,67 @@ function Dashboard() {
       }
     };
 
+    const fetchSessions = async () => {
+      try {
+        // Initialize default sessions for current year if none exist
+        await initializeDefaultSessions();
+        
+        // Get all sessions
+        const allSessions = await getAllSessions();
+        
+        // Get current session
+        const current = await getCurrentSessionFromDB();
+        setCurrentSession(current);
+        
+        // Get next session
+        const next = getNextSession(allSessions);
+        setNextSession(next);
+      } catch (error) {
+        console.error('Failed to fetch sessions:', error);
+      } finally {
+        setSessionsLoading(false);
+      }
+    };
+
     const initializeData = async () => {
       if (!loading) {
         // Fetch data
         await fetchCourses();
+        await fetchEnrollments();
+        await fetchCourseEnrollments();
         await fetchUserStats();
+        await fetchSessions();
       }
     };
 
     initializeData();
   }, [loading]);
+
+  // Fetch course enrollments when courses are loaded (for admin role)
+  useEffect(() => {
+    if (safeRole === 'admin' && courses.length > 0) {
+      const fetchCourseEnrollments = async () => {
+        try {
+          console.log('🔧 Fetching course enrollments for admin...');
+          // For admins, fetch enrollment counts for all courses
+          const enrollmentCounts: {[courseId: string]: number} = {};
+          for (const course of courses) {
+            console.log(`🔧 Fetching enrollments for course: ${course.code} (${course.id})`);
+            const courseEnrollments = await listEnrollments({ courseId: course.id });
+            const activeEnrollments = courseEnrollments.filter(e => e.status === 'enrolled');
+            enrollmentCounts[course.id] = activeEnrollments.length;
+            console.log(`🔧 Course ${course.code}: ${activeEnrollments.length} enrolled students`);
+          }
+          console.log('🔧 Final enrollment counts:', enrollmentCounts);
+          setCourseEnrollments(enrollmentCounts);
+        } catch (error) {
+          console.error('Failed to fetch course enrollments:', error);
+        }
+      };
+      
+      fetchCourseEnrollments();
+    }
+  }, [courses, safeRole]);
 
   if (loading) {
     return (
@@ -133,6 +233,28 @@ function Dashboard() {
     };
 
     return safeMdYear ? descriptions[safeMdYear] : 'Continue your journey to becoming an exceptional physician.';
+  };
+
+  // Helper functions for course display
+  const isEnrolledInCourse = (courseId: string) => {
+    return enrollments.some(enrollment => enrollment.courseId === courseId && enrollment.status === 'enrolled');
+  };
+
+  const getEnrolledCourses = () => {
+    return courses.filter(course => isEnrolledInCourse(course.id));
+  };
+
+  const getCoursesToDisplay = () => {
+    if (safeRole === 'student') {
+      return getEnrolledCourses();
+    }
+    return courses;
+  };
+
+  const getEnrollmentCount = (courseId: string) => {
+    const count = courseEnrollments[courseId] || 0;
+    console.log(`🔧 getEnrollmentCount for course ${courseId}: ${count}`);
+    return count;
   };
 
   return (
@@ -193,27 +315,180 @@ function Dashboard() {
         </div>
       </div>
 
-      {/* Quick Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Session Information */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Current Session Card */}
         <Card className="hover:shadow-lg transition-shadow">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Active Courses</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {coursesLoading ? (
-                    <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    courses.length
-                  )}
-                </p>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Calendar className="h-5 w-5 text-blue-600" />
+              Current Academic Session
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {sessionsLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                <span className="ml-2 text-gray-600">Loading session info...</span>
               </div>
-              <div className="h-10 w-10 bg-blue-100 rounded-full flex items-center justify-center">
-                <BookOpen size={20} className="text-blue-600" />
+            ) : currentSession ? (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-900">
+                      {getSessionDisplayName(currentSession)}
+                    </h3>
+                    <p className="text-sm text-gray-600 mt-1">
+                      {currentSession.description || 'Current academic session'}
+                    </p>
+                  </div>
+                  <Badge className="bg-green-100 text-green-800 border-green-200">
+                    Active
+                  </Badge>
+                </div>
+                
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Start Date:</span>
+                    <span className="font-medium">
+                      {currentSession.startDate instanceof Date 
+                        ? currentSession.startDate.toLocaleDateString()
+                        : currentSession.startDate.toDate().toLocaleDateString()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">End Date:</span>
+                    <span className="font-medium">
+                      {currentSession.endDate instanceof Date 
+                        ? currentSession.endDate.toLocaleDateString()
+                        : currentSession.endDate.toDate().toLocaleDateString()}
+                    </span>
+                  </div>
+                </div>
+                
+                {/* Session Progress */}
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Session Progress</span>
+                    <span className="font-medium">{getSessionProgress(currentSession)}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div 
+                      className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${getSessionProgress(currentSession)}%` }}
+                    ></div>
+                  </div>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="text-center py-8">
+                <Calendar className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+                <p className="text-gray-600">No active session found</p>
+                <p className="text-sm text-gray-500 mt-1">Please contact administration</p>
+              </div>
+            )}
           </CardContent>
         </Card>
+
+        {/* Next Session Card */}
+        <Card className="hover:shadow-lg transition-shadow">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Clock className="h-5 w-5 text-orange-600" />
+              Next Session
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {sessionsLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="w-6 h-6 border-2 border-orange-600 border-t-transparent rounded-full animate-spin" />
+                <span className="ml-2 text-gray-600">Loading session info...</span>
+              </div>
+            ) : nextSession ? (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-900">
+                      {getSessionDisplayName(nextSession)}
+                    </h3>
+                    <p className="text-sm text-gray-600 mt-1">
+                      {nextSession.description || 'Upcoming academic session'}
+                    </p>
+                  </div>
+                  <Badge className="bg-orange-100 text-orange-800 border-orange-200">
+                    Upcoming
+                  </Badge>
+                </div>
+                
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Start Date:</span>
+                    <span className="font-medium">
+                      {nextSession.startDate instanceof Date 
+                        ? nextSession.startDate.toLocaleDateString()
+                        : nextSession.startDate.toDate().toLocaleDateString()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">End Date:</span>
+                    <span className="font-medium">
+                      {nextSession.endDate instanceof Date 
+                        ? nextSession.endDate.toLocaleDateString()
+                        : nextSession.endDate.toDate().toLocaleDateString()}
+                    </span>
+                  </div>
+                </div>
+                
+                {/* Days until next session */}
+                <div className="bg-orange-50 rounded-lg p-3">
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-orange-600">
+                      {(() => {
+                        const startDate = nextSession.startDate instanceof Date 
+                          ? nextSession.startDate 
+                          : nextSession.startDate.toDate();
+                        const daysUntil = Math.ceil((startDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                        return daysUntil > 0 ? daysUntil : 0;
+                      })()}
+                    </div>
+                    <div className="text-sm text-orange-700">Days until next session</div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <Clock className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+                <p className="text-gray-600">No upcoming sessions</p>
+                <p className="text-sm text-gray-500 mt-1">All sessions have been scheduled</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+             {/* Quick Stats */}
+       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+         <Card className="hover:shadow-lg transition-shadow">
+           <CardContent className="p-4">
+             <div className="flex items-center justify-between">
+               <div>
+                 <p className="text-sm font-medium text-gray-600">
+                   {safeRole === 'student' ? 'Enrolled Courses' : 'Active Courses'}
+                 </p>
+                 <p className="text-2xl font-bold text-gray-900">
+                   {(coursesLoading || (safeRole === 'student' && enrollmentsLoading)) ? (
+                     <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                   ) : (
+                     getCoursesToDisplay().length
+                   )}
+                 </p>
+               </div>
+               <div className="h-10 w-10 bg-blue-100 rounded-full flex items-center justify-center">
+                 <BookOpen size={20} className="text-blue-600" />
+               </div>
+             </div>
+           </CardContent>
+         </Card>
 
         {safeRole === 'admin' ? (
           <>
@@ -251,13 +526,13 @@ function Dashboard() {
                     </p>
                   </div>
                   <div className="h-10 w-10 bg-blue-100 rounded-full flex items-center justify-center">
-                <Stethoscope size={20} className="text-blue-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+                    <Stethoscope size={20} className="text-blue-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
-        <Card className="hover:shadow-lg transition-shadow">
+            <Card className="hover:shadow-lg transition-shadow">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -750,43 +1025,57 @@ function Dashboard() {
         </div>
       </div>
 
-      {/* Active Courses Section */}
+      {/* Courses Section */}
         <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <BookOpen size={20} className="text-blue-600" />
-            Active Courses ({courses.length})
+            {safeRole === 'student' ? 'My Enrolled Courses' : 'Active Courses'} ({getCoursesToDisplay().length})
           </CardTitle>
         </CardHeader>
           <CardContent>
-          {coursesLoading ? (
+          {(coursesLoading || (safeRole === 'student' && enrollmentsLoading)) ? (
             <div className="flex items-center justify-center py-8">
               <div className="flex items-center gap-3">
                 <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
                 <span className="text-gray-600">Loading courses...</span>
               </div>
             </div>
-          ) : courses.length === 0 ? (
+          ) : getCoursesToDisplay().length === 0 ? (
             <div className="text-center py-8">
               <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-100 rounded-2xl mb-4">
                 <BookOpen size={32} className="text-blue-600" />
               </div>
-              <h3 className="text-lg font-semibold text-gray-800 mb-2">No Courses Available</h3>
-              <p className="text-gray-600 mb-4">No courses have been created yet.</p>
+              <h3 className="text-lg font-semibold text-gray-800 mb-2">
+                {safeRole === 'student' ? 'No Enrolled Courses' : 'No Courses Available'}
+              </h3>
+              <p className="text-gray-600 mb-4">
+                {safeRole === 'student' 
+                  ? 'You are not enrolled in any courses yet. Visit the Courses page to enroll in available courses.'
+                  : 'No courses have been created yet.'
+                }
+              </p>
               <Button variant="primary" className="flex items-center gap-2">
                 <BookOpen size={16} />
-                Create First Course
+                {safeRole === 'student' ? 'Browse Courses' : 'Create First Course'}
               </Button>
             </div>
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {courses.slice(0, 6).map((course) => (
+              {getCoursesToDisplay().slice(0, 6).map((course) => (
                 <div key={course.id} className="p-4 border border-gray-200 rounded-xl hover:shadow-md transition-shadow">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex-1">
-                      <h4 className="font-semibold text-gray-900 mb-1">
-                        {course.code} — {course.title}
-                      </h4>
+                                     <div className="flex items-start justify-between mb-3">
+                     <div className="flex-1">
+                       <div className="flex items-center gap-2 mb-1">
+                         <h4 className="font-semibold text-gray-900">
+                           {course.code} — {course.title}
+                         </h4>
+                         {safeRole === 'admin' && (
+                           <Badge className="bg-gradient-to-r from-green-500 to-emerald-600 text-white text-xs font-bold px-2 py-1 shadow-sm">
+                             {getEnrollmentCount(course.id)} enrolled
+                           </Badge>
+                         )}
+                       </div>
                       <div className="flex items-center gap-2 mb-2">
                         <Badge variant="default" className="text-xs bg-gradient-to-r from-blue-100 to-teal-100 text-blue-700 border-blue-200">
                           {course.semester}
@@ -799,10 +1088,15 @@ function Dashboard() {
                   </div>
                   
                   <div className="space-y-2 text-sm text-gray-600">
-                    <div className="flex items-center gap-2">
-                      <Users size={14} />
-                      <span>Capacity: {course.capacity} students</span>
-                    </div>
+                                         <div className="flex items-center gap-2">
+                       <Users size={14} />
+                       <span>
+                         {safeRole === 'admin' 
+                           ? `Capacity: ${course.capacity} students (${getEnrollmentCount(course.id)} enrolled)`
+                           : `Capacity: ${course.capacity} students`
+                         }
+                       </span>
+                     </div>
                     <div className="flex items-center gap-2">
                       <Stethoscope size={14} />
                       <span>Instructor: {course.instructor || 'TBD'}</span>
@@ -826,11 +1120,11 @@ function Dashboard() {
             </div>
           )}
           
-          {courses.length > 6 && (
+          {getCoursesToDisplay().length > 6 && (
             <div className="mt-6 text-center">
               <Button variant="outline" className="flex items-center gap-2">
                 <BookOpen size={16} />
-                View All Courses ({courses.length})
+                {safeRole === 'student' ? 'View All Enrolled Courses' : 'View All Courses'} ({getCoursesToDisplay().length})
               </Button>
             </div>
           )}

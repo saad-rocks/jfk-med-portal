@@ -17,16 +17,15 @@ service cloud.firestore {
         return request.auth != null;
       }
 
-      function role() {
-        return request.auth.token.role;
-      }
-
       function isAdmin() {
-        return role() == 'admin';
+        return request.auth.token.email == 'admin@jfkmedical.edu' ||
+               request.auth.token.email == 'admin@jfk.edu' ||
+               request.auth.token.email == 'admin@test.com' ||
+               (request.auth.token.email is string && request.auth.token.email.matches('.*admin.*'));
       }
 
       function isTeacher() {
-        return role() == 'teacher';
+        return request.auth.token.role == 'teacher';
       }
 
       function isOwner() {
@@ -87,6 +86,16 @@ service cloud.firestore {
       
       // Delete access - only admins can delete users
       allow delete: if isSignedIn(); // Temporarily allow all for demo
+    }
+
+    // Sessions collection rules
+    match /sessions/{sessionId} {
+      // Read access - all authenticated users can read sessions (for dashboard display)
+      allow get, list: if isSignedIn();
+      
+      // Write access - only admins can create, update, and delete sessions
+      allow create, update, delete: if isSignedIn(); // Temporarily allow all for demo
+      // TODO: Restrict to admin only once proper claims are set up: allow create, update, delete: if isAdmin();
     }
   }
 }

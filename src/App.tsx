@@ -131,6 +131,7 @@ const UsersAdmin = lazy(() => import("./pages/UsersAdmin"));
 const OSCE = lazy(() => import("./pages/OSCE"));
 const ClinicalRotations = lazy(() => import("./pages/ClinicalRotations"));
 const Immunizations = lazy(() => import("./pages/Immunizations"));
+const Sessions = lazy(() => import("./pages/Sessions"));
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null | "loading">("loading");
@@ -229,6 +230,11 @@ function App() {
             <Route path="immunizations" element={
               <Suspense fallback={<PageLoader />}>
                 <Immunizations />
+              </Suspense>
+            } />
+            <Route path="sessions" element={
+              <Suspense fallback={<PageLoader />}>
+                <Sessions />
               </Suspense>
             } />
           </Route>

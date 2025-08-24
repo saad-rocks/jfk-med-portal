@@ -1,4 +1,4 @@
-import { Menu, Bell, Search, Settings, LogOut, Home, BookOpen, ClipboardList, GraduationCap, Users, Layers, CalendarCheck, FileText, Sun, User, Stethoscope, Heart, UserCheck } from "lucide-react";
+import { Menu, Bell, Search, Settings, LogOut, Home, BookOpen, ClipboardList, GraduationCap, Users, Layers, CalendarCheck, FileText, Sun, User, Stethoscope, Heart, UserCheck, Calendar } from "lucide-react";
 import { Link, NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { signOut } from "firebase/auth";
@@ -168,7 +168,10 @@ export default function AppShell() {
                 <SidebarLink to="/enrollments" icon={<Users size={20} />} label="Enrollments" />
                 {/* Debug: Current role is {role} */}
                 {role === 'admin' ? (
-                  <SidebarLink to="/manage-users" icon={<UserCheck size={20} />} label="Manage Users" />
+                  <>
+                    <SidebarLink to="/manage-users" icon={<UserCheck size={20} />} label="Manage Users" />
+                    <SidebarLink to="/sessions" icon={<Calendar size={20} />} label="Sessions" />
+                  </>
                 ) : (
                   <SidebarLink to="/courses/MD-1/assignments" icon={<ClipboardList size={20} />} label="Assignments" />
                 )}

@@ -1,4 +1,4 @@
-import { addDoc, collection, getDocs } from "firebase/firestore";
+import { addDoc, collection, getDocs, doc, updateDoc, deleteDoc } from "firebase/firestore";
 import { auth, db } from "../firebase";
 
 export type Course = {
@@ -50,6 +50,42 @@ export async function listCourses(): Promise<Array<Course & { id: string }>> {
     results.push({ id: doc.id, ...data });
   });
   return results;
+}
+
+export async function updateCourse(courseId: string, input: CourseInput): Promise<void> {
+  const user = auth.currentUser;
+  if (!user) throw new Error("Must be signed in");
+
+  console.log('🔧 Updating course:', courseId, 'User:', user.email, 'UID:', user.uid);
+
+  const courseRef = doc(db, "courses", courseId);
+  const updateData = {
+    code: input.code,
+    title: input.title,
+    credits: Number(input.credits),
+    semester: input.semester,
+    capacity: Number(input.capacity),
+    instructor: input.instructor,
+    description: input.description,
+  };
+
+  console.log('🔧 Update data:', updateData);
+
+  try {
+    await updateDoc(courseRef, updateData);
+    console.log('✅ Course updated successfully');
+  } catch (error) {
+    console.error('❌ Error updating course:', error);
+    throw error;
+  }
+}
+
+export async function deleteCourse(courseId: string): Promise<void> {
+  const user = auth.currentUser;
+  if (!user) throw new Error("Must be signed in");
+
+  const courseRef = doc(db, "courses", courseId);
+  await deleteDoc(courseRef);
 }
 
 
