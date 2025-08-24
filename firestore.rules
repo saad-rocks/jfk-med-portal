@@ -1,0 +1,76 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() { return request.auth != null; }
+    function role() { return request.auth.token.role; }
+    function isAdmin() { return isSignedIn() && role() == 'admin'; }
+    function isTeacher() { return isSignedIn() && role() == 'teacher'; }
+    function isStudent() { return isSignedIn() && role() == 'student'; }
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Courses collection rules
+    match /courses/{courseId} {
+      function isSignedIn() {
+        return request.auth != null;
+      }
+
+      function role() {
+        return request.auth.token.role;
+      }
+
+      function isAdmin() {
+        return role() == 'admin';
+      }
+
+      function isTeacher() {
+        return role() == 'teacher';
+      }
+
+      function isOwner() {
+        return request.auth != null && request.auth.uid == resource.data.ownerId;
+      }
+
+      // All signed-in users can read courses
+      allow get, list: if isSignedIn();
+
+      // Create: any authenticated user can create (for demo purposes)
+      // TODO: Restrict to admin/teacher once proper claims are set up
+      allow create: if isSignedIn();
+
+      // Update/Delete: admin can modify any; teacher only if owner
+      allow update, delete: if isSignedIn() && (isAdmin() || (isTeacher() && isOwner()));
+    }
+
+    // Enrollments collection rules
+    match /enrollments/{enrollmentId} {
+      // Read access - any authenticated user can read (for demo purposes)
+      // TODO: Restrict to proper roles once claims are set up
+      allow get, list: if isSignedIn();
+
+      // Write access - any authenticated user can create (for demo purposes)
+      // TODO: Restrict to proper roles once claims are set up
+      allow create, update, delete: if isSignedIn();
+    }
+
+    // Assignments collection rules
+    match /assignments/{id} {
+      allow read: if isSignedIn();
+      // Allow any authenticated user to create/update/delete (for demo purposes)
+      // TODO: Restrict to proper roles once claims are set up
+      allow create, update, delete: if isSignedIn();
+    }
+
+    // Submissions collection rules
+    match /submissions/{id} {
+      allow read: if isSignedIn();
+      // Allow any authenticated user to create/update/delete (for demo purposes)
+      // TODO: Restrict to proper roles once claims are set up
+      allow create, update, delete: if isSignedIn();
+    }
+  }
+}
+
+
