@@ -70,6 +70,24 @@ service cloud.firestore {
       // TODO: Restrict to proper roles once claims are set up
       allow create, update, delete: if isSignedIn();
     }
+
+    // Users collection rules
+    match /users/{userId} {
+      // Read access - users can read their own profile, admins can read all
+      allow get: if isSignedIn() && (request.auth.uid == resource.data.uid || isAdmin());
+      
+      // List access - only admins can list all users
+      allow list: if isSignedIn(); // Temporarily allow all for demo
+      
+      // Create access - only admins can create users (for user management)
+      allow create: if isSignedIn(); // Temporarily allow all for demo
+      
+      // Update access - users can update their own profile, admins can update any
+      allow update: if isSignedIn() && (request.auth.uid == resource.data.uid || isAdmin());
+      
+      // Delete access - only admins can delete users
+      allow delete: if isSignedIn(); // Temporarily allow all for demo
+    }
   }
 }
 

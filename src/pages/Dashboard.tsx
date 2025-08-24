@@ -1,10 +1,13 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { PageHeader } from "../components/layout/PageHeader";
 import { useRole } from "../hooks/useRole";
 import { listCourses } from "../lib/courses";
+import { getUserStats } from "../lib/users";
+
+// Dashboard Component
 import { 
   Calendar, 
   Clock, 
@@ -26,10 +29,23 @@ import {
   Settings
 } from "lucide-react";
 
-export default function Dashboard() {
+function Dashboard() {
   const { user, role, mdYear, loading } = useRole();
+
+  // Handle potential null/undefined values gracefully
+  const safeUser = user || null;
+  const safeRole = role || 'student';
+  const safeMdYear = mdYear || undefined;
   const [courses, setCourses] = useState<Array<any>>([]);
   const [coursesLoading, setCoursesLoading] = useState(true);
+  const [userStats, setUserStats] = useState<{
+    totalUsers: number;
+    students: number;
+    teachers: number;
+    admins: number;
+    activeUsers: number;
+  } | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
 
   useEffect(() => {
     const fetchCourses = async () => {
@@ -43,9 +59,34 @@ export default function Dashboard() {
       }
     };
 
-    if (!loading) {
-      fetchCourses();
-    }
+    const fetchUserStats = async () => {
+      try {
+        const stats = await getUserStats();
+        setUserStats(stats);
+      } catch (error) {
+        console.error('Failed to fetch user stats:', error);
+        // Set default values on error
+        setUserStats({
+          totalUsers: 0,
+          students: 0,
+          teachers: 0,
+          admins: 0,
+          activeUsers: 0
+        });
+      } finally {
+        setStatsLoading(false);
+      }
+    };
+
+    const initializeData = async () => {
+      if (!loading) {
+        // Fetch data
+        await fetchCourses();
+        await fetchUserStats();
+      }
+    };
+
+    initializeData();
   }, [loading]);
 
   if (loading) {
@@ -59,6 +100,8 @@ export default function Dashboard() {
     );
   }
 
+  // Dashboard is ready to render
+
   const welcomeMessage = () => {
     const hour = new Date().getHours();
     if (hour < 12) return "Good morning";
@@ -66,19 +109,19 @@ export default function Dashboard() {
     return "Good evening";
   };
 
-  const userName = user?.displayName || user?.email?.split('@')[0] || 'there';
+  const userName = safeUser?.displayName || safeUser?.email?.split('@')[0] || 'there';
   
   const getMDYearDisplay = () => {
-    if (role !== 'student' || !mdYear) return '';
-    
+    if (safeRole !== 'student' || !safeMdYear) return '';
+
     const yearNames = {
       'MD-1': 'First Year',
-      'MD-2': 'Second Year', 
+      'MD-2': 'Second Year',
       'MD-3': 'Third Year',
       'MD-4': 'Fourth Year'
     };
-    
-    return yearNames[mdYear] || 'Medical Student';
+
+    return yearNames[safeMdYear] || 'Medical Student';
   };
 
   const getMDYearDescription = () => {
@@ -88,8 +131,8 @@ export default function Dashboard() {
       'MD-3': 'Gaining hands-on clinical experience in core rotations.',
       'MD-4': 'Preparing for residency with electives and specialty rotations.'
     };
-    
-    return mdYear ? descriptions[mdYear] : 'Continue your journey to becoming an exceptional physician.';
+
+    return safeMdYear ? descriptions[safeMdYear] : 'Continue your journey to becoming an exceptional physician.';
   };
 
   return (
@@ -109,32 +152,32 @@ export default function Dashboard() {
           <div className="space-y-3">
             <div className="flex items-center gap-4">
               <h2 className="text-2xl font-bold text-white drop-shadow-sm">Welcome to JFK Medical Portal</h2>
-              {role === 'student' && mdYear && (
+              {safeRole === 'student' && safeMdYear && (
                 <Badge className="bg-white/20 text-white border-white/30 backdrop-blur-sm shadow-soft">
-                  {mdYear} Student
+                  {safeMdYear} Student
                 </Badge>
               )}
             </div>
             
             <div className="space-y-2">
-              {role === 'student' && mdYear && (
+              {safeRole === 'student' && safeMdYear && (
                 <h3 className="text-lg font-semibold text-white/90 drop-shadow-sm">
                   {getMDYearDisplay()} Medical Student
                 </h3>
               )}
               <p className="text-white/80 max-w-lg leading-relaxed">
-                {role === 'student' ? getMDYearDescription() : 
-                 role === 'teacher' ? "Shape the future of medicine through education." :
-                 role === 'admin' ? "Manage and oversee the medical education program." :
+                {safeRole === 'student' ? getMDYearDescription() :
+                 safeRole === 'teacher' ? "Shape the future of medicine through education." :
+                 safeRole === 'admin' ? "Manage and oversee the medical education program." :
                  "Your gateway to medical education excellence."}
               </p>
             </div>
           </div>
           
           <div className="hidden md:flex flex-col items-center gap-4">
-            {role === 'student' && mdYear && (
+            {safeRole === 'student' && safeMdYear && (
               <div className="text-center">
-                <div className="text-4xl font-bold text-white drop-shadow-lg">{mdYear}</div>
+                <div className="text-4xl font-bold text-white drop-shadow-lg">{safeMdYear}</div>
                 <div className="text-xs text-white/70 font-medium uppercase tracking-wider">Current Year</div>
               </div>
             )}
@@ -172,14 +215,20 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {role === 'admin' ? (
+        {safeRole === 'admin' ? (
           <>
             <Card className="hover:shadow-lg transition-shadow">
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-gray-600">Total Students</p>
-                    <p className="text-2xl font-bold text-gray-900">247</p>
+                    <p className="text-2xl font-bold text-gray-900">
+                      {statsLoading ? (
+                        <div className="w-8 h-8 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        userStats?.students || 0
+                      )}
+                    </p>
                   </div>
                   <div className="h-10 w-10 bg-green-100 rounded-full flex items-center justify-center">
                     <Users size={20} className="text-green-600" />
@@ -193,7 +242,13 @@ export default function Dashboard() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-gray-600">Faculty Members</p>
-                    <p className="text-2xl font-bold text-blue-600">18</p>
+                    <p className="text-2xl font-bold text-blue-600">
+                      {statsLoading ? (
+                        <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        userStats?.teachers || 0
+                      )}
+                    </p>
                   </div>
                   <div className="h-10 w-10 bg-blue-100 rounded-full flex items-center justify-center">
                 <Stethoscope size={20} className="text-blue-600" />
@@ -215,6 +270,8 @@ export default function Dashboard() {
             </div>
           </CardContent>
         </Card>
+
+
       </>
     ) : (
       <>
@@ -267,7 +324,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column - Primary Content */}
         <div className="lg:col-span-2 space-y-6">
-          {role === 'admin' ? (
+          {safeRole === 'admin' ? (
             <>
               {/* System Overview */}
               <Card>
@@ -296,7 +353,10 @@ export default function Dashboard() {
                       <div className="h-2 w-2 bg-green-600 rounded-full"></div>
                       <div className="flex-1">
                         <p className="font-medium text-gray-900">User Authentication</p>
-                        <p className="text-sm text-gray-600">247 active users • 18 faculty members</p>
+                        <p className="text-sm text-gray-600">
+                          {statsLoading ? 'Loading user data...' : 
+                           `${userStats?.activeUsers || 0} active users • ${userStats?.teachers || 0} faculty members`}
+                        </p>
                       </div>
                       <div className="text-right">
                         <p className="text-sm font-medium text-green-600">Active</p>
@@ -463,54 +523,54 @@ export default function Dashboard() {
         {/* Right Column - Secondary Content */}
         <div className="space-y-6">
           {/* MD Year Progress Card - Only for students */}
-          {role === 'student' && mdYear && (
+          {safeRole === 'student' && safeMdYear && (
             <Card className="border-l-4 border-l-blue-500">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-blue-700">
                   <GraduationCap size={20} />
-                  {mdYear} Progress
+                  {safeMdYear} Progress
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-gray-600">Academic Year</span>
-                    <Badge variant="default">{mdYear}</Badge>
+                    <Badge variant="default">{safeMdYear}</Badge>
                   </div>
                   
                   <div className="space-y-2">
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600">Year Progress</span>
                       <span className="font-medium">
-                        {mdYear === 'MD-1' ? '72%' : 
-                         mdYear === 'MD-2' ? '85%' : 
-                         mdYear === 'MD-3' ? '45%' : '92%'}
+                        {safeMdYear === 'MD-1' ? '72%' : 
+                         safeMdYear === 'MD-2' ? '85%' : 
+                         safeMdYear === 'MD-3' ? '45%' : '92%'}
                       </span>
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2">
                       <div 
                         className="bg-blue-600 h-2 rounded-full transition-all duration-300"
                         style={{ 
-                          width: mdYear === 'MD-1' ? '72%' : 
-                                 mdYear === 'MD-2' ? '85%' : 
-                                 mdYear === 'MD-3' ? '45%' : '92%'
+                          width: safeMdYear === 'MD-1' ? '72%' : 
+                                 safeMdYear === 'MD-2' ? '85%' : 
+                                 safeMdYear === 'MD-3' ? '45%' : '92%'
                         }}
                       ></div>
                     </div>
                   </div>
                   
                   <div className="text-xs text-gray-500">
-                    {mdYear === 'MD-1' && 'Focus: Basic Sciences & Fundamentals'}
-                    {mdYear === 'MD-2' && 'Focus: Pathophysiology & Clinical Skills'}
-                    {mdYear === 'MD-3' && 'Focus: Core Clinical Rotations'}
-                    {mdYear === 'MD-4' && 'Focus: Electives & Residency Prep'}
+                    {safeMdYear === 'MD-1' && 'Focus: Basic Sciences & Fundamentals'}
+                    {safeMdYear === 'MD-2' && 'Focus: Pathophysiology & Clinical Skills'}
+                    {safeMdYear === 'MD-3' && 'Focus: Core Clinical Rotations'}
+                    {safeMdYear === 'MD-4' && 'Focus: Electives & Residency Prep'}
                   </div>
                 </div>
               </CardContent>
             </Card>
           )}
 
-          {role === 'admin' ? (
+          {safeRole === 'admin' ? (
             <>
               {/* System Alerts */}
               <Card className="border-l-4 border-l-green-500">
@@ -779,5 +839,7 @@ export default function Dashboard() {
     </div>
   );
 }
+
+export default Dashboard;
 
 
