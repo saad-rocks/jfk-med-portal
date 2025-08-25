@@ -1,12 +1,7 @@
-import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useToast, ToastContext } from "../../hooks/useToast";
 
 type Toast = { id: number; title?: string; description?: string; variant?: "default" | "success" | "error" };
-
-const ToastContext = createContext<{
-  toasts: Toast[];
-  push: (t: Omit<Toast, "id">) => void;
-  remove: (id: number) => void;
-} | null>(null);
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -18,12 +13,6 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const remove = useCallback((id: number) => setToasts(prev => prev.filter(t => t.id !== id)), []);
   const value = useMemo(() => ({ toasts, push, remove }), [toasts, push, remove]);
   return <ToastContext.Provider value={value}>{children}</ToastContext.Provider>;
-}
-
-export function useToast() {
-  const ctx = useContext(ToastContext);
-  if (!ctx) throw new Error("useToast must be used within ToastProvider");
-  return ctx;
 }
 
 export function ToastContainer() {

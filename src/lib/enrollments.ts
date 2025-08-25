@@ -1,4 +1,4 @@
-import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, query, updateDoc, where } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, query, updateDoc, where, type Query, type CollectionReference } from "firebase/firestore";
 import { auth, db } from "../firebase";
 
 export type EnrollmentStatus = "enrolled" | "dropped" | "completed";
@@ -34,12 +34,11 @@ export async function createEnrollment(input: EnrollmentInput): Promise<string> 
 
 export async function listEnrollments(filters?: { courseId?: string; semesterId?: string }): Promise<Array<Enrollment & { id: string }>> {
   const col = collection(db, "enrollments");
-  let q: any = col;
-  const whereClauses: any[] = [];
+  let q: Query | CollectionReference = col;
+  const whereClauses: ReturnType<typeof where>[] = [];
   if (filters?.courseId) whereClauses.push(where("courseId", "==", filters.courseId));
   if (filters?.semesterId) whereClauses.push(where("semesterId", "==", filters.semesterId));
   if (whereClauses.length > 0) {
-    // @ts-ignore
     q = query(col, ...whereClauses);
   }
   const snap = await getDocs(q);
@@ -64,7 +63,7 @@ export async function deleteEnrollment(enrollmentId: string): Promise<void> {
   await deleteDoc(doc(db, "enrollments", enrollmentId));
 }
 
-export async function getCourseById(courseId: string): Promise<any | null> {
+export async function getCourseById(courseId: string): Promise<{ id: string; [key: string]: unknown } | null> {
   const d = await getDoc(doc(db, "courses", courseId));
   return d.exists() ? { id: d.id, ...d.data() } : null;
 }

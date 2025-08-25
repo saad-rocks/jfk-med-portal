@@ -1,27 +1,6 @@
 import { addDoc, collection, getDocs, doc, updateDoc, deleteDoc } from "firebase/firestore";
 import { auth, db } from "../firebase";
-
-export type Course = {
-  code: string;
-  title: string;
-  credits: number;
-  semester: string; // e.g., MD-1 .. MD-11
-  capacity: number;
-  instructor: string;
-  description: string;
-  ownerId: string;
-  createdAt: number; // Date.now()
-};
-
-export type CourseInput = {
-  code: string;
-  title: string;
-  credits: number;
-  semester: string;
-  capacity: number;
-  instructor: string;
-  description: string;
-};
+import type { Course, CourseInput } from "../types";
 
 export async function createCourse(input: CourseInput): Promise<string> {
   const user = auth.currentUser;
@@ -47,7 +26,7 @@ export async function listCourses(): Promise<Array<Course & { id: string }>> {
   const results: Array<Course & { id: string }> = [];
   snap.forEach(doc => {
     const data = doc.data() as Course;
-    results.push({ id: doc.id, ...data });
+    results.push({ ...data, id: doc.id });
   });
   return results;
 }

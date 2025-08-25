@@ -7,7 +7,7 @@ const buttonStyles = cva(
   {
     variants: {
       variant: {
-        primary: "bg-gradient-to-r from-blue-500 to-teal-500 text-white hover:from-blue-600 hover:to-teal-600 shadow-glow hover:shadow-glow/80 fab",
+        primary: "bg-gradient-to-r from-blue-500 to-teal-500 text-white hover:from-blue-600 hover:to-teal-600 shadow-glow hover:shadow-glow/80",
         secondary: "bg-slate-100 text-slate-700 hover:bg-slate-200 hover:text-slate-800 shadow-soft",
         ghost: "bg-transparent text-slate-600 hover:bg-white/50 hover:text-slate-800",
         outline: "border-2 border-slate-200 bg-white/50 text-slate-700 hover:bg-white hover:border-blue-300 hover:text-blue-600 backdrop-blur-sm",
@@ -29,8 +29,19 @@ const buttonStyles = cva(
 type Props = DetailedHTMLProps<ButtonHTMLAttributes<HTMLButtonElement>, HTMLButtonElement> &
   VariantProps<typeof buttonStyles> & { asChild?: boolean };
 
-export function Button({ className, variant, size, ...props }: Props) {
-  return <button className={clsx(buttonStyles({ variant, size }), className)} {...props} />;
+export function Button({ className, variant, size, onClick, ...props }: Props) {
+  const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    console.log('Button clicked:', { variant, size, className, disabled: e.currentTarget.disabled });
+    if (onClick && !e.currentTarget.disabled) {
+      onClick(e);
+    }
+  };
+
+  return <button 
+    className={clsx(buttonStyles({ variant, size }), className)} 
+    onClick={handleClick}
+    {...props} 
+  />;
 }
 
 

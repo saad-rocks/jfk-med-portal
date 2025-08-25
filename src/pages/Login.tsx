@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
+import { signInWithEmailAndPassword, sendPasswordResetEmail, type AuthError } from "firebase/auth";
 import { Eye, EyeOff, Lock, Mail, Heart, GraduationCap } from "lucide-react";
 import { auth } from "../firebase";
 import { Button } from "../components/ui/button";
@@ -24,9 +24,10 @@ export default function Login() {
       await signInWithEmailAndPassword(auth, email, password);
       setMessage({ text: "Welcome back! Redirecting to dashboard...", type: 'success' });
       setTimeout(() => navigate("/", { replace: true }), 1000);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const authError = err as AuthError;
       setMessage({ 
-        text: err.code === 'auth/invalid-credential' 
+        text: authError.code === 'auth/invalid-credential' 
           ? "Invalid email or password. Please try again." 
           : "Login failed. Please check your credentials.",
         type: 'error' 
@@ -45,9 +46,10 @@ export default function Login() {
     try {
       await sendPasswordResetEmail(auth, email);
       setMessage({ text: "Password reset email sent. Check your inbox!", type: 'success' });
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const authError = e as AuthError;
       setMessage({ 
-        text: e.code === 'auth/user-not-found' 
+        text: authError.code === 'auth/user-not-found' 
           ? "No account found with this email address"
           : "Could not send reset email. Please try again.",
         type: 'error' 
@@ -100,141 +102,94 @@ export default function Login() {
               <span className="text-sm font-medium text-slate-700">Secure Sign In</span>
             </div>
           </CardHeader>
-          <CardContent className="space-y-6">
-            <form onSubmit={onLogin} className="space-y-6">
-              {/* Email Field */}
-              <div className="space-y-3">
-                <label htmlFor="email" className="block text-sm font-semibold text-slate-700">
+          <CardContent>
+            <form onSubmit={onLogin} className="space-y-4">
+              <div className="space-y-2">
+                <label htmlFor="email" className="text-sm font-medium text-slate-700">
                   Email Address
                 </label>
-                <div className="relative group">
-                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none transition-colors duration-200">
-                    <Mail size={18} className="text-slate-400 group-focus-within:text-blue-500" />
-                  </div>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={20} />
                   <Input
                     id="email"
                     type="email"
+                    placeholder="Enter your email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="your.email@jfkmedical.edu"
-                    className="pl-12 h-12 border-2 border-slate-200 rounded-xl bg-white/50 backdrop-blur-sm focus:border-blue-400 focus:bg-white transition-all duration-300 hover:border-slate-300"
+                    className="pl-10"
                     required
-                    autoComplete="email"
                   />
-                  <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-blue-400/5 to-teal-400/5 opacity-0 group-focus-within:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
                 </div>
               </div>
 
-              {/* Password Field */}
-              <div className="space-y-3">
-                <label htmlFor="password" className="block text-sm font-semibold text-slate-700">
+              <div className="space-y-2">
+                <label htmlFor="password" className="text-sm font-medium text-slate-700">
                   Password
                 </label>
-                <div className="relative group">
-                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none transition-colors duration-200">
-                    <Lock size={18} className="text-slate-400 group-focus-within:text-blue-500" />
-                  </div>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={20} />
                   <Input
                     id="password"
                     type={showPassword ? "text" : "password"}
+                    placeholder="Enter your password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter your secure password"
-                    className="pl-12 pr-12 h-12 border-2 border-slate-200 rounded-xl bg-white/50 backdrop-blur-sm focus:border-blue-400 focus:bg-white transition-all duration-300 hover:border-slate-300"
+                    className="pl-10 pr-10"
                     required
-                    autoComplete="current-password"
                   />
                   <button
                     type="button"
-                    className="absolute inset-y-0 right-0 pr-4 flex items-center hover:bg-slate-50 rounded-r-xl transition-colors duration-200"
                     onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
                   >
-                    {showPassword ? (
-                      <EyeOff size={18} className="text-slate-400 hover:text-slate-600 transition-colors" />
-                    ) : (
-                      <Eye size={18} className="text-slate-400 hover:text-slate-600 transition-colors" />
-                    )}
+                    {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                   </button>
-                  <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-blue-400/5 to-teal-400/5 opacity-0 group-focus-within:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
                 </div>
               </div>
 
-              {/* Forgot Password */}
-              <div className="flex items-center justify-end">
-                <button 
-                  type="button" 
-                  onClick={onReset} 
-                  className="text-sm text-blue-600 hover:text-blue-700 font-medium transition-all duration-200 hover:underline focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 rounded px-2 py-1"
-                >
-                  Forgot your password?
-                </button>
-              </div>
-
-              {/* Message Display */}
               {message && (
-                <div className={`p-4 rounded-xl text-sm font-medium backdrop-blur-sm animate-slide-down ${
+                <div className={`p-3 rounded-lg text-sm ${
                   message.type === 'error' 
-                    ? 'bg-red-50/80 text-red-700 border border-red-200/50 shadow-soft' 
-                    : 'bg-green-50/80 text-green-700 border border-green-200/50 shadow-soft'
+                    ? 'bg-red-50 text-red-700 border border-red-200' 
+                    : 'bg-green-50 text-green-700 border border-green-200'
                 }`}>
-                  <div className="flex items-start gap-3">
-                    <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${
-                      message.type === 'error' ? 'bg-red-500' : 'bg-green-500'
-                    }`}></div>
-                    <span>{message.text}</span>
-                  </div>
+                  {message.text}
                 </div>
               )}
 
-              {/* Submit Button */}
               <Button
                 type="submit"
+                className="w-full bg-gradient-to-r from-blue-600 to-teal-600 hover:from-blue-700 hover:to-teal-700 text-white font-medium py-3 rounded-lg transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-xl"
                 disabled={loading}
-                className="w-full h-12 bg-gradient-to-r from-blue-500 to-teal-500 hover:from-blue-600 hover:to-teal-600 text-white font-semibold shadow-glow rounded-xl transition-all duration-300 transform hover:scale-[1.02] hover:shadow-glow active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed fab"
               >
                 {loading ? (
-                  <div className="flex items-center justify-center gap-3">
-                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    <span>Signing you in...</span>
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Signing In...
                   </div>
                 ) : (
-                  <div className="flex items-center justify-center gap-2">
-                    <span>Sign In</span>
-                    <div className="w-1 h-1 bg-white/60 rounded-full"></div>
-                  </div>
+                  "Sign In"
                 )}
               </Button>
 
-              {/* Additional Security Info */}
               <div className="text-center">
-                <div className="inline-flex items-center gap-2 px-3 py-2 bg-slate-50/80 rounded-lg text-xs text-slate-600">
-                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                  <span>Secured with 256-bit encryption</span>
-                </div>
+                <button
+                  type="button"
+                  onClick={onReset}
+                  className="text-sm text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                  disabled={loading}
+                >
+                  Forgot your password?
+                </button>
               </div>
             </form>
           </CardContent>
         </Card>
 
         {/* Footer */}
-        <div className="text-center space-y-4">
-          <div className="flex items-center justify-center gap-6 text-xs text-slate-500">
-            <button className="hover:text-blue-600 transition-colors duration-200 focus:outline-none focus:text-blue-600">
-              Privacy Policy
-            </button>
-            <div className="w-1 h-1 bg-slate-300 rounded-full"></div>
-            <button className="hover:text-blue-600 transition-colors duration-200 focus:outline-none focus:text-blue-600">
-              Terms of Service
-            </button>
-            <div className="w-1 h-1 bg-slate-300 rounded-full"></div>
-            <button className="hover:text-blue-600 transition-colors duration-200 focus:outline-none focus:text-blue-600">
-              Support
-            </button>
-          </div>
-          <div className="text-xs text-slate-400">
-            <p>© 2024 JFK Medical Portal</p>
-            <p className="mt-1">Empowering the next generation of healthcare professionals</p>
-          </div>
+        <div className="text-center text-sm text-slate-500">
+          <p>© 2024 JFK Medical Portal. All rights reserved.</p>
+          <p className="mt-1">Secure • Reliable • Professional</p>
         </div>
       </div>
     </div>

@@ -1,172 +1,194 @@
-import { useEffect, useMemo, useState } from "react";
-import { useParams, Link } from "react-router-dom";
-// Storage upload removed; accept URLs instead
+import { useState, useEffect } from "react";
+import { useParams } from "react-router-dom";
+import { collection, getDocs, query, where } from "firebase/firestore";
+import { db } from "../firebase";
 import { useRole } from "../hooks/useRole";
-import { createAssignment, listAssignments } from "../lib/assignments";
-import type { AssignmentType } from "../types";
-import { useToast } from "../components/ui/toast";
-import { PageHeader } from "../components/layout/PageHeader";
-import { PageActions } from "../components/layout/PageActions";
+import { listAssignments } from "../lib/assignments";
+import CreateAssignment from "../components/CreateAssignment";
+import type { Assignment } from "../types";
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
-
-const TYPES: AssignmentType[] = ["hw", "quiz", "midterm", "final", "osce"];
+import { Badge } from "../components/ui/badge";
+import { Plus, FileText, Calendar, Users, BookOpen, X, Eye } from "lucide-react";
 
 export default function AssignmentsTeacher() {
-  const { push } = useToast();
-  const { courseId } = useParams();
+  const { courseId } = useParams<{ courseId: string }>();
   const { role } = useRole();
-  const canManage = useMemo(() => role === "teacher" || role === "admin", [role]);
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
-  const [form, setForm] = useState({
-    title: "",
-    type: "hw" as AssignmentType,
-    dueAt: "",
-    weight: 0,
-    maxPoints: 100,
-    instructions: "",
-    attachments: [] as string[],
-  });
-  const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [items, setItems] = useState<Array<any>>([]);
+  const fetchAssignments = async () => {
+    if (!courseId) return;
+
+    try {
+      const assignmentsData = await listAssignments(courseId);
+      setAssignments(assignmentsData);
+    } catch (error) {
+      console.error("Error fetching assignments:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    (async () => {
-      if (!courseId) return;
-      const list = await listAssignments(courseId);
-      setItems(list);
-    })();
+    fetchAssignments();
   }, [courseId]);
 
-  function addAttachmentUrl(url: string) {
-    if (!url) return;
-    setForm((prev) => ({ ...prev, attachments: [...(prev.attachments || []), url] }));
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!canManage || !courseId) return;
-    setError(null);
-    try {
-      const dueAtMs = form.dueAt ? new Date(form.dueAt).getTime() : Date.now();
-      await createAssignment({
-        courseId,
-        title: form.title,
-        type: form.type,
-        dueAt: dueAtMs,
-        weight: Number(form.weight),
-        maxPoints: Number(form.maxPoints),
-        instructions: form.instructions,
-        attachments: form.attachments,
-      } as any);
-      const list = await listAssignments(courseId);
-      setItems(list);
-      setForm({ title: "", type: "hw", dueAt: "", weight: 0, maxPoints: 100, instructions: "", attachments: [] });
-      push({ variant: 'success', title: 'Assignment created', description: form.title });
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to create assignment");
-      push({ variant: 'error', title: 'Failed to create assignment', description: e?.message });
+  const getAssignmentTypeColor = (type: string) => {
+    switch (type) {
+      case 'hw': return 'bg-blue-100 text-blue-800';
+      case 'quiz': return 'bg-green-100 text-green-800';
+      case 'midterm': return 'bg-orange-100 text-orange-800';
+      case 'final': return 'bg-red-100 text-red-800';
+      case 'osce': return 'bg-purple-100 text-purple-800';
+      default: return 'bg-gray-100 text-gray-800';
     }
-  }
+  };
 
-  if (!canManage) return <div className="p-6">Not authorized.</div>;
+  const getAssignmentTypeLabel = (type: string) => {
+    switch (type) {
+      case 'hw': return 'Homework';
+      case 'quiz': return 'Quiz';
+      case 'midterm': return 'Midterm';
+      case 'final': return 'Final';
+      case 'osce': return 'OSCE';
+      default: return type;
+    }
+  };
 
-  return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <PageHeader
-        title="Assignments (Teacher)"
-        breadcrumb={[{ label: 'Home', to: '/' }, { label: 'Courses', to: '/courses' }, { label: String(courseId) }, { label: 'Assignments (Teacher)' }]}
-        actions={
-          <PageActions>
-            <Button variant="outline" onClick={() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })}>New Assignment</Button>
-          </PageActions>
-        }
-      />
-
-      {error && <div className="mb-4 p-3 rounded bg-red-50 text-red-700 border border-red-200">{error}</div>}
-
-      <form onSubmit={handleSubmit} className="mb-6 grid gap-3 bg-white p-4 rounded border">
-        <div className="grid md:grid-cols-2 gap-3">
-          <label className="flex flex-col text-sm">
-            <span className="mb-1 font-medium">Title</span>
-            <input className="border rounded px-3 py-2" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
-          </label>
-          <label className="flex flex-col text-sm">
-            <span className="mb-1 font-medium">Type</span>
-            <select className="border rounded px-3 py-2" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as AssignmentType })}>
-              {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </label>
-        </div>
-        <div className="grid md:grid-cols-3 gap-3">
-          <label className="flex flex-col text-sm">
-            <span className="mb-1 font-medium">Due</span>
-            <input type="datetime-local" className="border rounded px-3 py-2" value={form.dueAt} onChange={(e) => setForm({ ...form, dueAt: e.target.value })} />
-          </label>
-          <label className="flex flex-col text-sm">
-            <span className="mb-1 font-medium">Weight</span>
-            <input type="number" className="border rounded px-3 py-2" value={form.weight} onChange={(e) => setForm({ ...form, weight: Number(e.target.value) })} />
-          </label>
-          <label className="flex flex-col text-sm">
-            <span className="mb-1 font-medium">Max Points</span>
-            <input type="number" className="border rounded px-3 py-2" value={form.maxPoints} onChange={(e) => setForm({ ...form, maxPoints: Number(e.target.value) })} />
-          </label>
-        </div>
-        <label className="flex flex-col text-sm">
-          <span className="mb-1 font-medium">Instructions</span>
-          <textarea className="border rounded px-3 py-2" rows={4} value={form.instructions} onChange={(e) => setForm({ ...form, instructions: e.target.value })} />
-        </label>
-        <label className="flex flex-col text-sm">
-          <span className="mb-1 font-medium">Attachment URLs</span>
-          <AttachmentUrlAdder onAdd={addAttachmentUrl} />
-          {form.attachments?.length ? (
-            <ul className="mt-2 text-xs list-disc pl-4">
-              {form.attachments.map((u, i) => <li key={i}><a href={u} className="text-blue-600 underline" target="_blank" rel="noreferrer">Attachment {i+1}</a></li>)}
-            </ul>
-          ) : null}
-        </label>
-        <div>
-          <button type="submit" className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700">Create</button>
-        </div>
-      </form>
-
-      <div className="bg-white border rounded p-4">
-        <h2 className="font-medium mb-3">Assignments</h2>
-        <div className="overflow-auto">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className="text-left border-b">
-                <th className="py-2 pr-4">Title</th>
-                <th className="py-2 pr-4">Type</th>
-                <th className="py-2 pr-4">Due</th>
-                <th className="py-2 pr-4">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map(a => (
-                <tr key={a.id} className="border-b">
-                  <td className="py-2 pr-4">{a.title}</td>
-                  <td className="py-2 pr-4">{a.type}</td>
-                  <td className="py-2 pr-4">{a.dueAt ? new Date(a.dueAt).toLocaleString() : ""}</td>
-                  <td className="py-2 pr-4 space-x-2">
-                    <Link className="text-blue-600 underline" to={`/assignments/${a.id}/grade`}>View Submissions</Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="flex items-center gap-3">
+          <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+          <span className="text-gray-600">Loading assignments...</span>
         </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
-function AttachmentUrlAdder({ onAdd }: { onAdd: (url: string) => void }) {
-  const [val, setVal] = useState("");
+  // Check if user is a teacher
+  if (role !== 'teacher') {
+    return (
+      <div className="p-6">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <h3 className="text-lg font-medium text-red-800">Access Denied</h3>
+          <p className="text-red-700">Only teachers can access this page.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex gap-2">
-      <input value={val} onChange={(e) => setVal(e.target.value)} placeholder="https://..." className="border rounded px-3 py-2 flex-1" />
-      <button type="button" className="px-3 py-2 rounded bg-gray-100 border" onClick={() => { onAdd(val.trim()); setVal(""); }}>Add</button>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Course Assignments</h1>
+          <p className="text-gray-600 mt-2">
+            Manage assignments for this course
+          </p>
+        </div>
+        <Button
+          className="flex items-center gap-2"
+          onClick={() => setShowCreateModal(true)}
+        >
+          <Plus size={16} />
+          Create Assignment
+        </Button>
+      </div>
+
+      {/* Assignments List */}
+      <div className="space-y-4">
+        {assignments.length === 0 ? (
+          <Card>
+            <CardContent className="py-12 text-center">
+              <FileText size={48} className="mx-auto text-gray-300 mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">
+                No assignments created yet
+              </h3>
+              <p className="text-gray-600 mb-4">
+                Start by creating your first assignment for this course.
+              </p>
+              <Button
+                onClick={() => setShowCreateModal(true)}
+                className="flex items-center gap-2"
+              >
+                <Plus size={16} />
+                Create First Assignment
+              </Button>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid gap-4">
+            {assignments.map((assignment) => (
+              <Card key={assignment.id} className="hover:shadow-md transition-shadow">
+                <CardContent className="p-6">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <h3 className="text-lg font-semibold text-gray-900">
+                          {assignment.title}
+                        </h3>
+                        <Badge className={getAssignmentTypeColor(assignment.type)}>
+                          {getAssignmentTypeLabel(assignment.type)}
+                        </Badge>
+                      </div>
+                      <p className="text-gray-600 mb-3">{assignment.instructions}</p>
+                      <div className="flex items-center gap-4 text-sm text-gray-500">
+                        <div className="flex items-center gap-1">
+                          <Calendar size={14} />
+                          <span>Due: {new Date(assignment.dueAt).toLocaleDateString()}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <BookOpen size={14} />
+                          <span>{assignment.maxPoints} points</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Users size={14} />
+                          <span>Weight: {assignment.weight}%</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" className="flex items-center gap-1">
+                        <Eye size={14} />
+                        View Submissions
+                      </Button>
+                      <Button variant="outline" size="sm">
+                        Edit
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Create Assignment Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-md flex items-center justify-center z-50 p-4">
+          <div className="relative w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <button
+              onClick={() => setShowCreateModal(false)}
+              className="absolute top-4 right-4 z-10 p-2 bg-white/90 backdrop-blur-sm rounded-full shadow-lg hover:bg-white transition-all duration-200"
+            >
+              <X size={20} />
+            </button>
+            <CreateAssignment
+              courseId={courseId}
+              onSuccess={() => {
+                setShowCreateModal(false);
+                fetchAssignments(); // Refresh the assignments list
+              }}
+              onCancel={() => setShowCreateModal(false)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

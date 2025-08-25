@@ -28,7 +28,7 @@ class AppErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundary
     return { hasError: true, error };
   }
 
-  componentDidCatch(error: Error, errorInfo: any) {
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('❌ App Error Boundary caught an error:', error, errorInfo);
   }
 
@@ -119,6 +119,7 @@ const Courses = lazy(() => import("./pages/Courses"));
 const CourseDetail = lazy(() => import("./pages/CourseDetail"));
 const Enrollments = lazy(() => import("./pages/Enrollments"));
 const ManageUsers = lazy(() => import("./pages/ManageUsers"));
+const Assignments = lazy(() => import("./pages/Assignments"));
 const AssignmentsTeacher = lazy(() => import("./pages/AssignmentsTeacher"));
 const AssignmentsStudent = lazy(() => import("./pages/AssignmentsStudent"));
 const GradeSubmissions = lazy(() => import("./pages/GradeSubmissions"));
@@ -127,7 +128,6 @@ const Gradebook = lazy(() => import("./pages/Gradebook"));
 const Announcements = lazy(() => import("./pages/Announcements"));
 const Semesters = lazy(() => import("./pages/Semesters"));
 const Settings = lazy(() => import("./pages/Settings"));
-const UsersAdmin = lazy(() => import("./pages/UsersAdmin"));
 const OSCE = lazy(() => import("./pages/OSCE"));
 const ClinicalRotations = lazy(() => import("./pages/ClinicalRotations"));
 const Immunizations = lazy(() => import("./pages/Immunizations"));
@@ -164,6 +164,11 @@ function App() {
             <Route path="courses/:courseId" element={
               <Suspense fallback={<PageLoader />}>
                 <CourseDetail />
+              </Suspense>
+            } />
+            <Route path="assignments" element={
+              <Suspense fallback={<PageLoader />}>
+                <Assignments />
               </Suspense>
             } />
             <Route path="courses/:courseId/assignments/teacher" element={

@@ -4,6 +4,15 @@ import react from '@vitejs/plugin-react'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  server: {
+    // Enable hot module replacement
+    hmr: true,
+    // Watch for file changes
+    watch: {
+      usePolling: false,
+      interval: 100
+    }
+  },
   build: {
     rollupOptions: {
       output: {
@@ -31,5 +40,19 @@ export default defineConfig({
   // Optimize dependencies
   optimizeDeps: {
     include: ['react', 'react-dom', 'react-router-dom', 'firebase/app', 'firebase/auth']
+  },
+  // Environment variable handling
+  define: {
+    __DEV__: JSON.stringify(process.env.NODE_ENV === 'development'),
+  },
+  // Resolve aliases
+  resolve: {
+    alias: {
+      '@': '/src',
+      '@/components': '/src/components',
+      '@/lib': '/src/lib',
+      '@/hooks': '/src/hooks',
+      '@/types': '/src/types'
+    }
   }
 })

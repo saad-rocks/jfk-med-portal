@@ -7,10 +7,10 @@ import {
   updateDoc, 
   deleteDoc, 
   query, 
-  where, 
   orderBy,
   Timestamp,
-  writeBatch
+  writeBatch,
+  type UpdateData
 } from 'firebase/firestore';
 import { db } from '../firebase';
 
@@ -180,7 +180,7 @@ export async function createSession(sessionData: CreateSessionInput): Promise<Se
     }
     
     // Create session document
-    const sessionDataToSave: any = {
+    const sessionDataToSave: Omit<Session, 'id'> = {
       name: sessionData.name,
       year: sessionData.year,
       startDate: Timestamp.fromDate(sessionData.startDate),
@@ -257,16 +257,16 @@ export async function updateSession(sessionId: string, updates: Partial<Session>
     const sessionRef = doc(db, SESSIONS_COLLECTION, sessionId);
     
     // Filter out undefined values
-    const cleanUpdates: any = {
+    const cleanUpdates: UpdateData<Session> = {
       updatedAt: Timestamp.now()
     };
     
     Object.entries(updates).forEach(([key, value]) => {
       if (value !== undefined) {
         if (key === 'startDate' || key === 'endDate' || key === 'registrationDeadline' || key === 'withdrawalDeadline') {
-          cleanUpdates[key] = Timestamp.fromDate(value as Date);
+          (cleanUpdates as Record<string, unknown>)[key] = Timestamp.fromDate(value as Date);
         } else {
-          cleanUpdates[key] = value;
+          (cleanUpdates as Record<string, unknown>)[key] = value;
         }
       }
     });

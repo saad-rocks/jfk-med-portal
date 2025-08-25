@@ -1,0 +1,404 @@
+import { 
+  collection, 
+  doc, 
+  getDocs, 
+  getDoc, 
+  query, 
+  where, 
+  orderBy,
+  Timestamp,
+  writeBatch
+} from 'firebase/firestore';
+import { auth, db } from '../firebase';
+import { getAllUsers } from './users';
+
+export interface TeacherAssignment {
+  id?: string;
+  teacherId: string; // Firestore user document ID
+  teacherEmail: string;
+  courseId: string;
+  courseCode: string;
+  courseTitle: string;
+  semester: string;
+  assignedAt: Timestamp | Date;
+  status: 'active' | 'inactive';
+}
+
+export interface CreateTeacherAssignmentInput {
+  teacherId: string;
+  teacherEmail: string;
+  courseId: string;
+  courseCode: string;
+  courseTitle: string;
+  semester: string;
+}
+
+const TEACHER_ASSIGNMENTS_COLLECTION = 'teacherAssignments';
+
+// Helper function to check if current user is a teacher
+async function isCurrentUserTeacher(): Promise<boolean> {
+  const user = auth.currentUser;
+  if (!user) {
+    console.log('❌ No current user found');
+    return false;
+  }
+  
+  try {
+    console.log('🔍 Checking if user is teacher:', user.email);
+    const allUsers = await getAllUsers();
+    const currentUser = allUsers.find(u => u.email?.toLowerCase() === user.email?.toLowerCase());
+    console.log('👤 Current user found:', currentUser ? { email: currentUser.email, role: currentUser.role } : 'Not found');
+    const isTeacher = currentUser?.role === 'teacher';
+    console.log('✅ Is teacher?', isTeacher);
+    return isTeacher;
+  } catch (error) {
+    console.error('❌ Error checking if user is teacher:', error);
+    return false;
+  }
+}
+
+// Create a new teacher assignment
+export async function createTeacherAssignment(input: CreateTeacherAssignmentInput): Promise<string> {
+  const user = auth.currentUser;
+  if (!user) throw new Error("Must be signed in");
+
+  // Check if user is a teacher
+  const isTeacher = await isCurrentUserTeacher();
+  if (!isTeacher) {
+    throw new Error("Only teachers can assign courses to themselves");
+  }
+
+  // Check if course already has an active instructor
+  const existingAssignments = await getCourseTeacherAssignments(input.courseId);
+  if (existingAssignments.length > 0) {
+    throw new Error("This course already has an instructor assigned");
+  }
+
+  const payload: TeacherAssignment = {
+    ...input,
+    assignedAt: Timestamp.now(),
+    status: 'active'
+  };
+
+  // Use a batch to ensure both operations succeed or fail together
+  const batch = writeBatch(db);
+  
+  // Add teacher assignment
+  const assignmentRef = doc(collection(db, TEACHER_ASSIGNMENTS_COLLECTION));
+  batch.set(assignmentRef, payload);
+  
+  // Update course instructor
+  const courseRef = doc(db, "courses", input.courseId);
+  console.log('🔧 Updating course instructor:', input.courseId, 'to:', input.teacherEmail);
+  batch.update(courseRef, {
+    instructor: input.teacherEmail
+  });
+  
+  await batch.commit();
+  return assignmentRef.id;
+}
+
+// Get all assignments for a specific teacher
+export async function getTeacherAssignments(teacherId: string): Promise<Array<TeacherAssignment & { id: string }>> {
+  try {
+    console.log(`🔍 Fetching teacher assignments for teacherId: ${teacherId}`);
+    
+    // First try with orderBy (requires index)
+    try {
+      const q = query(
+        collection(db, TEACHER_ASSIGNMENTS_COLLECTION),
+        where('teacherId', '==', teacherId),
+        where('status', '==', 'active'),
+        orderBy('assignedAt', 'desc')
+      );
+      
+      const snap = await getDocs(q);
+      const assignments: Array<TeacherAssignment & { id: string }> = [];
+      
+      snap.forEach(doc => {
+        assignments.push({ id: doc.id, ...doc.data() as TeacherAssignment });
+      });
+      
+      console.log(`✅ Found ${assignments.length} teacher assignments with orderBy`);
+      return assignments;
+    } catch (orderByError) {
+      console.log(`⚠️ OrderBy query failed, trying without orderBy:`, orderByError);
+      
+      // Fallback: query without orderBy
+      const q = query(
+        collection(db, TEACHER_ASSIGNMENTS_COLLECTION),
+        where('teacherId', '==', teacherId),
+        where('status', '==', 'active')
+      );
+      
+      const snap = await getDocs(q);
+      const assignments: Array<TeacherAssignment & { id: string }> = [];
+      
+      snap.forEach(doc => {
+        assignments.push({ id: doc.id, ...doc.data() as TeacherAssignment });
+      });
+      
+      // Sort manually if needed
+      assignments.sort((a, b) => {
+        const aTime = a.assignedAt instanceof Date ? a.assignedAt.getTime() : (a.assignedAt as any)?.seconds * 1000 || 0;
+        const bTime = b.assignedAt instanceof Date ? b.assignedAt.getTime() : (b.assignedAt as any)?.seconds * 1000 || 0;
+        return bTime - aTime;
+      });
+      
+      console.log(`✅ Found ${assignments.length} teacher assignments without orderBy`);
+      return assignments;
+    }
+  } catch (error) {
+    console.error(`❌ Error fetching teacher assignments for ${teacherId}:`, error);
+    return [];
+  }
+}
+
+// Get all assignments for a specific course
+export async function getCourseTeacherAssignments(courseId: string): Promise<Array<TeacherAssignment & { id: string }>> {
+  const q = query(
+    collection(db, TEACHER_ASSIGNMENTS_COLLECTION),
+    where('courseId', '==', courseId),
+    where('status', '==', 'active'),
+    orderBy('assignedAt', 'desc')
+  );
+  
+  const snap = await getDocs(q);
+  const assignments: Array<TeacherAssignment & { id: string }> = [];
+  
+  snap.forEach(doc => {
+    assignments.push({ id: doc.id, ...doc.data() as TeacherAssignment });
+  });
+  
+  return assignments;
+}
+
+// Remove a teacher assignment (soft delete by setting status to inactive)
+export async function removeTeacherAssignment(assignmentId: string): Promise<void> {
+  const user = auth.currentUser;
+  if (!user) throw new Error("Must be signed in");
+
+  // Check if user is a teacher
+  const isTeacher = await isCurrentUserTeacher();
+  if (!isTeacher) {
+    throw new Error("Only teachers can remove their course assignments");
+  }
+
+  // Get the assignment details first
+  const assignmentRef = doc(db, TEACHER_ASSIGNMENTS_COLLECTION, assignmentId);
+  const assignmentDoc = await getDoc(assignmentRef);
+  
+  if (!assignmentDoc.exists()) {
+    throw new Error("Assignment not found");
+  }
+  
+  const assignmentData = assignmentDoc.data() as TeacherAssignment;
+  
+  // Use a batch to ensure both operations succeed or fail together
+  const batch = writeBatch(db);
+  
+  // Deactivate the assignment
+  batch.update(assignmentRef, {
+    status: 'inactive',
+    updatedAt: Timestamp.now()
+  });
+  
+  // Clear the course instructor
+  const courseRef = doc(db, "courses", assignmentData.courseId);
+  console.log('🔧 Clearing course instructor:', assignmentData.courseId, 'setting to: TBD');
+  batch.update(courseRef, {
+    instructor: "TBD" // or empty string, depending on your preference
+  });
+  
+  await batch.commit();
+}
+
+// Check if a teacher is assigned to a specific course
+export async function isTeacherAssignedToCourse(teacherId: string, courseId: string): Promise<boolean> {
+  const q = query(
+    collection(db, TEACHER_ASSIGNMENTS_COLLECTION),
+    where('teacherId', '==', teacherId),
+    where('courseId', '==', courseId),
+    where('status', '==', 'active')
+  );
+  
+  const snap = await getDocs(q);
+  return !snap.empty;
+}
+
+// Get all active teacher assignments
+export async function getAllTeacherAssignments(): Promise<Array<TeacherAssignment & { id: string }>> {
+  const q = query(
+    collection(db, TEACHER_ASSIGNMENTS_COLLECTION),
+    where('status', '==', 'active'),
+    orderBy('assignedAt', 'desc')
+  );
+  
+  const snap = await getDocs(q);
+  const assignments: Array<TeacherAssignment & { id: string }> = [];
+  
+  snap.forEach(doc => {
+    assignments.push({ id: doc.id, ...doc.data() as TeacherAssignment });
+  });
+  
+  return assignments;
+}
+
+// Get the current instructor for a specific course
+export async function getCourseInstructor(courseId: string): Promise<string | null> {
+  const assignments = await getCourseTeacherAssignments(courseId);
+  if (assignments.length > 0) {
+    return assignments[0].teacherEmail;
+  }
+  return null;
+}
+
+// Check if a course is available for assignment (no active instructor)
+export async function isCourseAvailableForAssignment(courseId: string): Promise<boolean> {
+  const assignments = await getCourseTeacherAssignments(courseId);
+  return assignments.length === 0;
+}
+
+// Debug function to check all teacher assignments
+export async function debugTeacherAssignments(): Promise<Array<TeacherAssignment & { id: string }>> {
+  try {
+    console.log("🔍 Debugging teacher assignments...");
+    const allAssignments = await getAllTeacherAssignments();
+    console.log("📊 Total teacher assignments in DB:", allAssignments.length);
+
+    allAssignments.forEach((assignment, index) => {
+      console.log(`  ${index + 1}. Teacher: ${assignment.teacherEmail}, Course: ${assignment.courseCode}, Status: ${assignment.status}, TeacherID: ${assignment.teacherId}`);
+    });
+    
+    return allAssignments;
+  } catch (error) {
+    console.error("❌ Error debugging teacher assignments:", error);
+    return [];
+  }
+}
+
+// Helper function to check if a specific teacher has any assignments
+export async function checkTeacherAssignments(teacherId: string): Promise<Array<TeacherAssignment & { id: string }>> {
+  try {
+    console.log(`🔍 Checking assignments for teacher ID: ${teacherId}`);
+    
+    // Query directly without orderBy to avoid index issues
+    const q = query(
+      collection(db, TEACHER_ASSIGNMENTS_COLLECTION),
+      where('teacherId', '==', teacherId),
+      where('status', '==', 'active')
+    );
+    
+    const snap = await getDocs(q);
+    const assignments: Array<TeacherAssignment & { id: string }> = [];
+    
+    snap.forEach(doc => {
+      assignments.push({ id: doc.id, ...doc.data() as TeacherAssignment });
+    });
+    
+    console.log(`✅ Found ${assignments.length} assignments for teacher ${teacherId}:`, assignments);
+    return assignments;
+  } catch (error) {
+    console.error(`❌ Error checking teacher assignments for ${teacherId}:`, error);
+    return [];
+  }
+}
+
+// Utility function to assign a teacher to a course (for admin use)
+export async function assignTeacherToCourse(
+  teacherId: string,
+  teacherEmail: string,
+  courseId: string
+): Promise<string> {
+  try {
+    console.log(`👨‍🏫 Assigning teacher ${teacherEmail} to course ${courseId}...`);
+
+    // Get course details
+    const { getDoc, doc, addDoc, writeBatch, Timestamp } = await import("firebase/firestore");
+    const courseDoc = await getDoc(doc(db, "courses", courseId));
+
+    if (!courseDoc.exists()) {
+      throw new Error(`Course ${courseId} not found`);
+    }
+
+    const courseData = courseDoc.data();
+
+    // Check if course already has an active instructor
+    const existingAssignments = await getCourseTeacherAssignments(courseId);
+    if (existingAssignments.length > 0) {
+      throw new Error("This course already has an instructor assigned");
+    }
+
+    // Create teacher assignment directly (bypassing teacher restriction)
+    const assignmentData: TeacherAssignment = {
+      teacherId,
+      teacherEmail,
+      courseId,
+      courseCode: courseData.code,
+      courseTitle: courseData.title,
+      semester: courseData.semester || "Unknown",
+      assignedAt: Timestamp.now(),
+      status: 'active'
+    };
+
+    // Use a batch to ensure both operations succeed or fail together
+    const batch = writeBatch(db);
+    
+    // Add teacher assignment
+    const assignmentRef = doc(collection(db, TEACHER_ASSIGNMENTS_COLLECTION));
+    batch.set(assignmentRef, assignmentData);
+    
+    // Update course instructor
+    const courseRef = doc(db, "courses", courseId);
+    console.log('🔧 Updating course instructor:', courseId, 'to:', teacherEmail);
+    batch.update(courseRef, {
+      instructor: teacherEmail
+    });
+    
+    await batch.commit();
+    
+    console.log(`✅ Teacher assigned successfully with ID: ${assignmentRef.id}`);
+    return assignmentRef.id;
+  } catch (error) {
+    console.error("❌ Error assigning teacher to course:", error);
+    throw error;
+  }
+}
+
+// Admin function to remove teacher assignment from a course
+export async function adminRemoveTeacherAssignment(courseId: string): Promise<void> {
+  try {
+    console.log(`👨‍🏫 Admin removing teacher assignment from course ${courseId}...`);
+
+    const { doc, writeBatch, getDocs, query, where } = await import("firebase/firestore");
+    
+    // Get the current teacher assignment for this course
+    const assignments = await getCourseTeacherAssignments(courseId);
+    if (assignments.length === 0) {
+      throw new Error("No teacher assignment found for this course");
+    }
+
+    // Use a batch to ensure both operations succeed or fail together
+    const batch = writeBatch(db);
+    
+    // Remove teacher assignment (set status to inactive)
+    for (const assignment of assignments) {
+      const assignmentRef = doc(db, TEACHER_ASSIGNMENTS_COLLECTION, assignment.id);
+      batch.update(assignmentRef, { status: 'inactive' });
+    }
+    
+    // Update course instructor to empty
+    const courseRef = doc(db, "courses", courseId);
+    console.log('🔧 Removing instructor from course:', courseId);
+    batch.update(courseRef, {
+      instructor: ""
+    });
+    
+    await batch.commit();
+    
+    console.log(`✅ Teacher assignment removed successfully from course ${courseId}`);
+  } catch (error) {
+    console.error("❌ Error removing teacher assignment:", error);
+    throw error;
+  }
+}

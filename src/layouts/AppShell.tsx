@@ -172,8 +172,10 @@ export default function AppShell() {
                     <SidebarLink to="/manage-users" icon={<UserCheck size={20} />} label="Manage Users" />
                     <SidebarLink to="/sessions" icon={<Calendar size={20} />} label="Sessions" />
                   </>
+                ) : role === 'teacher' ? (
+                  <SidebarLink to="/assignments" icon={<ClipboardList size={20} />} label="Assignments" />
                 ) : (
-                  <SidebarLink to="/courses/MD-1/assignments" icon={<ClipboardList size={20} />} label="Assignments" />
+                  <SidebarLink to="/assignments" icon={<ClipboardList size={20} />} label="Assignments" />
                 )}
                 <SidebarLink to="/gradebook" icon={<GraduationCap size={20} />} label="Gradebook" />
                 <SidebarLink to="/attendance" icon={<CalendarCheck size={20} />} label="Attendance" />

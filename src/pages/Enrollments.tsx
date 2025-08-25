@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { httpsCallable } from "firebase/functions";
 import { functions } from "../firebase";
 import { createEnrollment, deleteEnrollment, listEnrollments, type Enrollment, type EnrollmentStatus, updateEnrollmentStatus } from "../lib/enrollments";
-import { listCourses, type Course } from "../lib/courses";
+import { listCourses } from "../lib/courses";
+import type { Course } from "../types";
 import { getAllUsers } from "../lib/users";
 import type { UserProfile } from "../lib/users";
 import { PageHeader } from "../components/layout/PageHeader";
@@ -16,7 +17,7 @@ const SEMESTERS = Array.from({ length: 11 }, (_, i) => `MD-${i + 1}`);
 const STATUSES: EnrollmentStatus[] = ["enrolled", "dropped", "completed"];
 
 export default function Enrollments() {
-  const { user, role, loading } = useRole();
+  const { role, loading } = useRole();
   const [error, setError] = useState<string | null>(null);
 
   const [courses, setCourses] = useState<Array<Course & { id: string }>>([]);
@@ -78,9 +79,10 @@ export default function Enrollments() {
           setCourses(cs || []);
           setUsers(us || []);
           setEnrollments(es || []);
-        } catch (e: any) {
-          console.error('❌ Error loading data:', e);
-          setError(e?.message ?? "Failed to load data");
+        } catch (e: unknown) {
+          const error = e as Error;
+          console.error('❌ Error loading data:', error);
+          setError(error?.message ?? "Failed to load data");
           // Set empty arrays to prevent crashes
           setCourses([]);
           setUsers([]);
@@ -97,10 +99,11 @@ export default function Enrollments() {
     if (value.includes("@")) {
       try {
         const callable = httpsCallable(functions, "findUserByEmailOrUid");
-        const res: any = await callable({ emailOrUid: value });
-        setSelectedStudentId(res.data.uid);
-      } catch (e: any) {
-        setError(e?.message ?? "User not found");
+        const res = await callable({ emailOrUid: value });
+        setSelectedStudentId((res.data as { uid: string }).uid);
+      } catch (e: unknown) {
+        const error = e as Error;
+        setError(error?.message ?? "User not found");
       }
     } else {
       setSelectedStudentId(value);
@@ -137,8 +140,9 @@ export default function Enrollments() {
       setCreateStatus("enrolled");
       setSelectedStudentId("");
       setStudentSearch("");
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to create enrollment");
+    } catch (e: unknown) {
+      const error = e as Error;
+      setError(error?.message ?? "Failed to create enrollment");
     } finally {
       setIsSubmitting(false);
     }
@@ -149,8 +153,9 @@ export default function Enrollments() {
       await updateEnrollmentStatus(id, status);
       const es = await listEnrollments({ courseId: filterCourseId || undefined, semesterId: filterSemesterId || undefined });
       setEnrollments(es);
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to update status");
+    } catch (e: unknown) {
+      const error = e as Error;
+      setError(error?.message ?? "Failed to update status");
     }
   }
 
@@ -159,8 +164,9 @@ export default function Enrollments() {
       await deleteEnrollment(id);
       const es = await listEnrollments({ courseId: filterCourseId || undefined, semesterId: filterSemesterId || undefined });
       setEnrollments(es);
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to delete enrollment");
+    } catch (e: unknown) {
+      const error = e as Error;
+      setError(error?.message ?? "Failed to delete enrollment");
     }
   }
 

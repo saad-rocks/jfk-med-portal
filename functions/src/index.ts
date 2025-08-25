@@ -45,13 +45,13 @@ export const findUserByEmailOrUid = onCall(async (request) => {
   if (emailOrUid.includes("@")) {
     try {
       userRecord = await admin.auth().getUserByEmail(emailOrUid);
-    } catch (e) {
+    } catch {
       throw new HttpsError("not-found", "User not found");
     }
   } else {
     try {
       userRecord = await admin.auth().getUser(emailOrUid);
-    } catch (e) {
+    } catch {
       throw new HttpsError("not-found", "User not found");
     }
   }

@@ -1,6 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRole } from '../hooks/useRole';
-import { PageHeader } from '../components/layout/PageHeader';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -8,11 +7,9 @@ import { Badge } from '../components/ui/badge';
 import {
   getAllUsers,
   getUsersByRole, 
-  createUser, 
   createUserWithoutSignIn,
   updateUser, 
   deleteUserProfile, 
-  searchUsers,
   getUserStats
 } from '../lib/users';
 import type {
@@ -24,7 +21,6 @@ import {
   Users, 
   UserPlus, 
   Search, 
-  Filter, 
   Edit2, 
   Trash2, 
   ArrowLeft,
@@ -34,7 +30,6 @@ import {
   Mail,
   Phone,
   Calendar,
-  MapPin,
   User
 } from 'lucide-react';
 
@@ -66,27 +61,8 @@ export default function ManageUsers() {
   });
   const [error, setError] = useState<string | null>(null);
 
-  // Load users data on component mount
-  useEffect(() => {
-    initializeData();
-  }, []);
-
-  const initializeData = async () => {
-    try {
-      // Seed initial data if needed
-      await seedUsersData();
-      
-      // Load users and stats
-      await loadUsers();
-      await loadUserStats();
-    } catch (error) {
-      console.error('Error initializing data:', error);
-      setError('Failed to initialize user data');
-    }
-  };
-
   // Load users based on selected role or all users
-  const loadUsers = async () => {
+  const loadUsers = useCallback(async () => {
     try {
       console.log('📊 Loading users...', selectedRole ? `Role: ${selectedRole}` : 'All users');
       setLoading(true);
@@ -108,7 +84,7 @@ export default function ManageUsers() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedRole]);
 
   // Load user statistics
   const loadUserStats = async () => {
@@ -122,12 +98,32 @@ export default function ManageUsers() {
     }
   };
 
+  // Initialize data on component mount
+  const initializeData = useCallback(async () => {
+    try {
+      // Seed initial data if needed
+      await seedUsersData();
+      
+      // Load users and stats
+      await loadUsers();
+      await loadUserStats();
+    } catch (error) {
+      console.error('Error initializing data:', error);
+      setError('Failed to initialize user data');
+    }
+  }, [loadUsers]);
+
+  // Load users data on component mount
+  useEffect(() => {
+    initializeData();
+  }, [initializeData]);
+
   // Reload users when selected role changes
   useEffect(() => {
     if (viewMode === 'users') {
       loadUsers();
     }
-  }, [selectedRole, viewMode]);
+  }, [selectedRole, viewMode, loadUsers]);
 
   // Access control
   if (role !== 'admin') {
@@ -368,10 +364,9 @@ export default function ManageUsers() {
                 className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="all">All Years</option>
-                <option value="MD-1">MD-1</option>
-                <option value="MD-2">MD-2</option>
-                <option value="MD-3">MD-3</option>
-                <option value="MD-4">MD-4</option>
+                {Array.from({ length: 11 }, (_, i) => `MD-${i + 1}`).map(mdYear => (
+                  <option key={mdYear} value={mdYear}>{mdYear}</option>
+                ))}
               </select>
             )}
             
@@ -620,7 +615,7 @@ function UserModal({ user, role, onClose, onSave }: UserModalProps) {
     onSave({ ...formData, role });
   };
 
-  const handleInputChange = (field: string, value: any) => {
+  const handleInputChange = (field: string, value: string | number) => {
     console.log(`📝 Field changed: ${field} = ${value}`);
     const newFormData = { ...formData, [field]: value };
     console.log('📋 Updated form data:', newFormData);
@@ -628,7 +623,7 @@ function UserModal({ user, role, onClose, onSave }: UserModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/30 backdrop-blur-md flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
         <div className="p-6 border-b">
           <h2 className="text-xl font-bold text-gray-900">
@@ -715,10 +710,9 @@ function UserModal({ user, role, onClose, onSave }: UserModalProps) {
                   onChange={(e) => handleInputChange('mdYear', e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="MD-1">MD-1</option>
-                  <option value="MD-2">MD-2</option>
-                  <option value="MD-3">MD-3</option>
-                  <option value="MD-4">MD-4</option>
+                  {Array.from({ length: 11 }, (_, i) => `MD-${i + 1}`).map(mdYear => (
+                    <option key={mdYear} value={mdYear}>{mdYear}</option>
+                  ))}
                 </select>
               </div>
               <div>

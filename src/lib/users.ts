@@ -5,7 +5,7 @@ import {
   getDoc, 
   addDoc, 
   updateDoc, 
-  deleteDoc, 
+  deleteDoc,
   query, 
   where, 
   orderBy,
@@ -14,10 +14,8 @@ import {
 } from 'firebase/firestore';
 import {
   createUserWithEmailAndPassword,
-  updateProfile,
-  deleteUser as deleteAuthUser
+  updateProfile
 } from 'firebase/auth';
-import type { User as FirebaseUser } from 'firebase/auth';
 import { db, auth } from '../firebase';
 
 export interface UserProfile {
@@ -32,7 +30,7 @@ export interface UserProfile {
   updatedAt: Timestamp | Date;
   
   // Student specific fields
-  mdYear?: 'MD-1' | 'MD-2' | 'MD-3' | 'MD-4';
+  mdYear?: 'MD-1' | 'MD-2' | 'MD-3' | 'MD-4' | 'MD-5' | 'MD-6' | 'MD-7' | 'MD-8' | 'MD-9' | 'MD-10' | 'MD-11';
   studentId?: string;
   gpa?: number;
   enrollmentDate?: Timestamp | Date;
@@ -56,7 +54,7 @@ export interface CreateUserInput {
   role: 'student' | 'teacher' | 'admin';
   
   // Student specific
-  mdYear?: 'MD-1' | 'MD-2' | 'MD-3' | 'MD-4';
+  mdYear?: 'MD-1' | 'MD-2' | 'MD-3' | 'MD-4' | 'MD-5' | 'MD-6' | 'MD-7' | 'MD-8' | 'MD-9' | 'MD-10' | 'MD-11';
   studentId?: string;
   gpa?: number;
   
@@ -279,9 +277,6 @@ export async function createUserWithoutSignIn(userData: CreateUserInput): Promis
       throw new Error('Password must be at least 6 characters long');
     }
     
-    // Store current user to restore later
-    const currentUser = auth.currentUser;
-    
     // Create Firebase Auth user (this will sign in the new user)
     const userCredential = await createUserWithEmailAndPassword(
       auth, 
@@ -345,14 +340,29 @@ export async function createUserWithoutSignIn(userData: CreateUserInput): Promis
 // Update user
 export async function updateUser(userId: string, updates: Partial<UserProfile>): Promise<void> {
   try {
+    console.log('🔄 Updating user:', userId, 'with updates:', updates);
+    
+    // Filter out undefined values to prevent Firestore errors
+    const cleanUpdates = Object.fromEntries(
+      Object.entries(updates).filter(([, value]) => value !== undefined)
+    );
+    
+    console.log('🧹 Clean updates:', cleanUpdates);
+    
     const userRef = doc(db, USERS_COLLECTION, userId);
     await updateDoc(userRef, {
-      ...updates,
+      ...cleanUpdates,
       updatedAt: Timestamp.now()
     });
+    
+    console.log('✅ User updated successfully');
   } catch (error) {
-    console.error('Error updating user:', error);
-    throw new Error('Failed to update user');
+    console.error('❌ Error updating user:', {
+      userId,
+      updates,
+      errorMessage: error instanceof Error ? error.message : 'Unknown error'
+    });
+    throw new Error('Failed to update user: ' + (error instanceof Error ? error.message : 'Unknown error'));
   }
 }
 

@@ -2,10 +2,31 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function isSignedIn() { return request.auth != null; }
-    function role() { return request.auth.token.role; }
-    function isAdmin() { return isSignedIn() && role() == 'admin'; }
-    function isTeacher() { return isSignedIn() && role() == 'teacher'; }
-    function isStudent() { return isSignedIn() && role() == 'student'; }
+    
+    function isAdmin() {
+      return request.auth.token.email == 'admin@jfkmedical.edu' ||
+             request.auth.token.email == 'admin@jfk.edu' ||
+             request.auth.token.email == 'admin@test.com' ||
+             request.auth.token.email == 'saadshah2000@gmail.com' ||
+             (request.auth.token.email is string && request.auth.token.email.matches('.*admin.*'));
+    }
+    
+    function isTeacher() { 
+      return isSignedIn() && (
+        request.auth.token.email == 'Dos@jfk.com' ||
+        request.auth.token.email == 'dos@jfk.com' ||
+        (request.auth.token.email is string && request.auth.token.email.matches('.*teacher.*')) ||
+        (request.auth.token.email is string && request.auth.token.email.matches('.*@jfk.*')) ||
+        (request.auth.token.email is string && request.auth.token.email.matches('.*@gmail.*'))
+      );
+    }
+    
+    function isStudent() { 
+      return isSignedIn() && (
+        request.auth.token.email == 'saadshah2000@gmail.com' ||
+        (request.auth.token.email is string && request.auth.token.email.matches('.*student.*'))
+      );
+    }
     // Default deny
     match /{document=**} {
       allow read, write: if false;
@@ -13,21 +34,6 @@ service cloud.firestore {
 
     // Courses collection rules
     match /courses/{courseId} {
-      function isSignedIn() {
-        return request.auth != null;
-      }
-
-      function isAdmin() {
-        return request.auth.token.email == 'admin@jfkmedical.edu' ||
-               request.auth.token.email == 'admin@jfk.edu' ||
-               request.auth.token.email == 'admin@test.com' ||
-               (request.auth.token.email is string && request.auth.token.email.matches('.*admin.*'));
-      }
-
-      function isTeacher() {
-        return request.auth.token.role == 'teacher';
-      }
-
       function isOwner() {
         return request.auth != null && request.auth.uid == resource.data.ownerId;
       }
@@ -39,8 +45,9 @@ service cloud.firestore {
       // TODO: Restrict to admin/teacher once proper claims are set up
       allow create: if isSignedIn();
 
-      // Update/Delete: admin can modify any; teacher only if owner
-      allow update, delete: if isSignedIn() && (isAdmin() || (isTeacher() && isOwner()));
+      // Update/Delete: admin can modify any; teacher can update instructor field
+      allow update, delete: if isSignedIn() && (isAdmin() || (isTeacher() && isOwner()) || 
+        (isTeacher() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['instructor'])) || isTeacher());
     }
 
     // Enrollments collection rules
@@ -96,6 +103,15 @@ service cloud.firestore {
       // Write access - only admins can create, update, and delete sessions
       allow create, update, delete: if isSignedIn(); // Temporarily allow all for demo
       // TODO: Restrict to admin only once proper claims are set up: allow create, update, delete: if isAdmin();
+    }
+
+    // Teacher Assignments collection rules
+    match /teacherAssignments/{assignmentId} {
+      // Read access - any authenticated user can read
+      allow get, list: if isSignedIn();
+
+      // Write access - any authenticated user can manage (temporarily permissive)
+      allow create, update, delete: if isSignedIn();
     }
   }
 }
