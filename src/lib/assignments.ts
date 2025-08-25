@@ -52,4 +52,203 @@ export async function updateAssignment(assignmentId: string, updates: Partial<As
   });
 }
 
+export async function getAssignmentsDueForUser(userId: string): Promise<Array<Assignment & { id: string }>> {
+  try {
+    // First get the user's enrollments
+    const { listEnrollmentsForStudent } = await import('./enrollments');
+    const enrollments = await listEnrollmentsForStudent(userId);
+    
+    if (enrollments.length === 0) {
+      return [];
+    }
+
+    // Get all assignments for enrolled courses
+    const enrolledCourseIds = enrollments.map(e => e.courseId);
+    const allAssignments: Array<Assignment & { id: string }> = [];
+    
+    for (const courseId of enrolledCourseIds) {
+      try {
+        const courseAssignments = await listAssignments(courseId);
+        allAssignments.push(...courseAssignments);
+      } catch (error) {
+        console.error(`Error fetching assignments for course ${courseId}:`, error);
+      }
+    }
+
+    // Filter assignments that are due in the future (not overdue)
+    const now = Date.now();
+    const dueAssignments = allAssignments.filter(assignment => 
+      assignment.dueAt > now
+    );
+
+    // Sort by due date (earliest first)
+    dueAssignments.sort((a, b) => a.dueAt - b.dueAt);
+
+    return dueAssignments;
+  } catch (error) {
+    console.error('Error getting assignments due for user:', error);
+    return [];
+  }
+}
+
+export async function getOverdueAssignmentsForUser(userId: string): Promise<Array<Assignment & { id: string }>> {
+  try {
+    // First get the user's enrollments
+    const { listEnrollmentsForStudent } = await import('./enrollments');
+    const enrollments = await listEnrollmentsForStudent(userId);
+    
+    if (enrollments.length === 0) {
+      return [];
+    }
+
+    // Get all assignments for enrolled courses
+    const enrolledCourseIds = enrollments.map(e => e.courseId);
+    const allAssignments: Array<Assignment & { id: string }> = [];
+    
+    for (const courseId of enrolledCourseIds) {
+      try {
+        const courseAssignments = await listAssignments(courseId);
+        allAssignments.push(...courseAssignments);
+      } catch (error) {
+        console.error(`Error fetching assignments for course ${courseId}:`, error);
+      }
+    }
+
+    // Filter assignments that are overdue
+    const now = Date.now();
+    const overdueAssignments = allAssignments.filter(assignment => 
+      assignment.dueAt < now
+    );
+
+    // Sort by due date (most overdue first)
+    overdueAssignments.sort((a, b) => b.dueAt - a.dueAt);
+
+    return overdueAssignments;
+  } catch (error) {
+    console.error('Error getting overdue assignments for user:', error);
+    return [];
+  }
+}
+
+export async function calculateOverallGradeForUser(userId: string): Promise<number> {
+  try {
+    // First get the user's enrollments
+    const { listEnrollmentsForStudent } = await import('./enrollments');
+    const enrollments = await listEnrollmentsForStudent(userId);
+    
+    if (enrollments.length === 0) {
+      return 0;
+    }
+
+    // Get all assignments for enrolled courses
+    const enrolledCourseIds = enrollments.map(e => e.courseId);
+    const allAssignments: Array<Assignment & { id: string }> = [];
+    
+    for (const courseId of enrolledCourseIds) {
+      try {
+        const courseAssignments = await listAssignments(courseId);
+        allAssignments.push(...courseAssignments);
+      } catch (error) {
+        console.error(`Error fetching assignments for course ${courseId}:`, error);
+      }
+    }
+
+    if (allAssignments.length === 0) {
+      return 0;
+    }
+
+    // Get submissions for all assignments
+    const { listSubmissions } = await import('./submissions');
+    let totalWeightedGrade = 0;
+    let totalWeight = 0;
+
+    for (const assignment of allAssignments) {
+      try {
+        const submissions = await listSubmissions(assignment.id!);
+        const studentSubmission = submissions.find(s => s.studentId === userId);
+        
+        if (studentSubmission && studentSubmission.grade.points !== null && studentSubmission.grade.points !== undefined) {
+          const gradePercentage = (studentSubmission.grade.points / assignment.maxPoints) * 100;
+          totalWeightedGrade += (gradePercentage * assignment.weight);
+          totalWeight += assignment.weight;
+        }
+      } catch (error) {
+        console.error(`Error fetching submissions for assignment ${assignment.id}:`, error);
+      }
+    }
+
+    if (totalWeight === 0) {
+      return 0;
+    }
+
+    return Math.round((totalWeightedGrade / totalWeight) * 100) / 100;
+  } catch (error) {
+    console.error('Error calculating overall grade for user:', error);
+    return 0;
+  }
+}
+
+export async function calculateAttendanceForUser(userId: string): Promise<number> {
+  try {
+    // First get the user's enrollments
+    const { listEnrollmentsForStudent } = await import('./enrollments');
+    const enrollments = await listEnrollmentsForStudent(userId);
+    
+    if (enrollments.length === 0) {
+      return 0;
+    }
+
+    // Get all sessions for enrolled courses
+    const { getAllSessions } = await import('./sessions');
+    const allSessions = await getAllSessions();
+    
+    const enrolledCourseIds = enrollments.map(e => e.courseId);
+    const relevantSessions = allSessions.filter(session => 
+      enrolledCourseIds.includes(session.courseId)
+    );
+
+    if (relevantSessions.length === 0) {
+      return 100; // No sessions means perfect attendance
+    }
+
+    // Get attendance records for the user
+    const { collection, getDocs, query, where } = await import('firebase/firestore');
+    const { db } = await import('../firebase');
+    
+    let totalSessions = 0;
+    let attendedSessions = 0;
+
+    for (const session of relevantSessions) {
+      try {
+        const attendanceQuery = query(
+          collection(db, "attendance"),
+          where("sessionId", "==", session.id),
+          where("studentId", "==", userId)
+        );
+        const attendanceSnapshot = await getDocs(attendanceQuery);
+        
+        if (!attendanceSnapshot.empty) {
+          const attendanceRecord = attendanceSnapshot.docs[0].data();
+          totalSessions++;
+          
+          if (attendanceRecord.status === 'present' || attendanceRecord.status === 'late') {
+            attendedSessions++;
+          }
+        }
+      } catch (error) {
+        console.error(`Error fetching attendance for session ${session.id}:`, error);
+      }
+    }
+
+    if (totalSessions === 0) {
+      return 100;
+    }
+
+    return Math.round((attendedSessions / totalSessions) * 100);
+  } catch (error) {
+    console.error('Error calculating attendance for user:', error);
+    return 0;
+  }
+}
+
 

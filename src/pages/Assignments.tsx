@@ -258,8 +258,13 @@ export default function Assignments() {
           <div className="grid gap-4">
             {assignments.map((assignment) => {
               const IconComponent = getAssignmentTypeIcon(assignment.type);
+              const isOverdue = new Date(assignment.dueAt) < new Date();
               return (
-                <Card key={assignment.id} className="hover:shadow-lg transition-all duration-200 border border-slate-200/60 bg-white/95">
+                <Card key={assignment.id} className={`hover:shadow-lg transition-all duration-200 border ${
+                  isOverdue 
+                    ? 'border-red-200 bg-red-50/50 hover:border-red-300' 
+                    : 'border-slate-200/60 bg-white/95'
+                }`}>
                   <CardContent className="p-6">
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
@@ -271,9 +276,16 @@ export default function Assignments() {
                             <h3 className="text-lg font-semibold text-slate-800">
                               {assignment.title}
                             </h3>
-                            <Badge className={`${getAssignmentTypeColor(assignment.type)} border`}>
-                              {getAssignmentTypeLabel(assignment.type)}
-                            </Badge>
+                            <div className="flex items-center gap-2">
+                              <Badge className={`${getAssignmentTypeColor(assignment.type)} border`}>
+                                {getAssignmentTypeLabel(assignment.type)}
+                              </Badge>
+                              {isOverdue && (
+                                <Badge className="bg-red-500 text-white text-xs">
+                                  Overdue
+                                </Badge>
+                              )}
+                            </div>
                           </div>
                         </div>
                         
@@ -282,7 +294,9 @@ export default function Assignments() {
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
                           <div className="flex items-center gap-2 text-slate-600">
                             <Calendar size={16} className="text-medical-500" />
-                            <span>Due: {new Date(assignment.dueAt).toLocaleDateString()}</span>
+                            <span className={isOverdue ? 'text-red-600 font-medium' : ''}>
+                              Due: {new Date(assignment.dueAt).toLocaleDateString()}
+                            </span>
                           </div>
                           <div className="flex items-center gap-2 text-slate-600">
                             <Award size={16} className="text-alert-500" />

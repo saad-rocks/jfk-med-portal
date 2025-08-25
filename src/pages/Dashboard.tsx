@@ -9,7 +9,7 @@ import { listCourses } from "../lib/courses";
 import { listEnrollmentsForStudent, listEnrollments, type Enrollment } from "../lib/enrollments";
 import { getUserStats, getAllUsers, type UserProfile } from "../lib/users";
 import { getTeacherAssignments, type TeacherAssignment } from "../lib/teacherAssignments";
-import { listAssignments } from "../lib/assignments";
+import { listAssignments, getAssignmentsDueForUser, getOverdueAssignmentsForUser, calculateOverallGradeForUser, calculateAttendanceForUser } from "../lib/assignments";
 import { 
   getCurrentSessionFromDB, 
   getNextSession, 
@@ -62,6 +62,10 @@ function Dashboard() {
   const [enrollmentsLoading, setEnrollmentsLoading] = useState(true);
   const [teacherAssignments, setTeacherAssignments] = useState<Array<TeacherAssignment & { id: string }>>([]);
   const [studentAssignments, setStudentAssignments] = useState<Array<Assignment & { id: string }>>([]);
+  const [assignmentsDue, setAssignmentsDue] = useState<Array<Assignment & { id: string }>>([]);
+  const [overdueAssignments, setOverdueAssignments] = useState<Array<Assignment & { id: string }>>([]);
+  const [overallGrade, setOverallGrade] = useState<number>(0);
+  const [attendance, setAttendance] = useState<number>(0);
   const [teacherStats, setTeacherStats] = useState<{
     assignedCourses: number;
     totalStudents: number;
@@ -122,6 +126,22 @@ function Dashboard() {
                   
                   setStudentAssignments(allAssignments);
                   console.log('📝 Student assignments fetched:', allAssignments.length);
+                  
+                  // Get assignments due and overdue
+                  const dueAssignments = await getAssignmentsDueForUser(currentUser.id);
+                  const overdueAssignments = await getOverdueAssignmentsForUser(currentUser.id);
+                  setAssignmentsDue(dueAssignments);
+                  setOverdueAssignments(overdueAssignments);
+                  console.log('📅 Assignments due:', dueAssignments.length);
+                  console.log('⏰ Overdue assignments:', overdueAssignments.length);
+                  
+                  // Calculate overall grade and attendance
+                  const grade = await calculateOverallGradeForUser(currentUser.id);
+                  const attendanceRate = await calculateAttendanceForUser(currentUser.id);
+                  setOverallGrade(grade);
+                  setAttendance(attendanceRate);
+                  console.log('📊 Overall grade:', grade);
+                  console.log('📈 Attendance rate:', attendanceRate);
                 }
               } else {
                 console.error('❌ Student profile not found in database for email:', safeUser.email);
@@ -975,12 +995,12 @@ function Dashboard() {
                       </div>
                       
                       <div className="space-y-2 text-sm text-gray-600">
-                        <div className="flex items-center gap-2">
-                          <Calendar size={14} />
-                          <span className={isOverdue ? 'text-critical-600 font-medium' : ''}>
-                            Due: {new Date(assignment.dueAt).toLocaleDateString()}
-                          </span>
-                        </div>
+                                                 <div className="flex items-center gap-2">
+                           <Calendar size={14} />
+                           <span className={isOverdue ? 'text-red-600 font-medium' : ''}>
+                             Due: {new Date(assignment.dueAt).toLocaleDateString()}
+                           </span>
+                         </div>
                         <div className="flex items-center gap-2">
                           <Award size={14} />
                           <span>{assignment.maxPoints} points</span>
@@ -1100,7 +1120,7 @@ function Dashboard() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-gray-600">System Health</p>
-                                         <div className="text-2xl font-bold text-green-600">100%</div>
+                    <div className="text-2xl font-bold text-green-600">100%</div>
                   </div>
                   <div className="h-10 w-10 bg-green-100 rounded-full flex items-center justify-center">
                     <Activity size={20} className="text-green-600" />
@@ -1166,7 +1186,7 @@ function Dashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600">Assignments Due</p>
-                                 <div className="text-2xl font-bold text-gray-900">3</div>
+                <div className="text-2xl font-bold text-gray-900">{assignmentsDue.length}</div>
               </div>
               <div className="h-10 w-10 bg-orange-100 rounded-full flex items-center justify-center">
                 <ClipboardList size={20} className="text-orange-600" />
@@ -1180,7 +1200,7 @@ function Dashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600">Overall Grade</p>
-                                 <div className="text-2xl font-bold text-green-600">92%</div>
+                <div className="text-2xl font-bold text-green-600">{overallGrade}%</div>
               </div>
               <div className="h-10 w-10 bg-green-100 rounded-full flex items-center justify-center">
                 <TrendingUp size={20} className="text-green-600" />
@@ -1194,7 +1214,7 @@ function Dashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600">Attendance</p>
-                                 <div className="text-2xl font-bold text-blue-600">98%</div>
+                <div className="text-2xl font-bold text-blue-600">{attendance}%</div>
               </div>
               <div className="h-10 w-10 bg-blue-100 rounded-full flex items-center justify-center">
                 <Users size={20} className="text-blue-600" />
@@ -1527,18 +1547,70 @@ function Dashboard() {
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600">Year Progress</span>
                       <span className="font-medium">
-                        {safeMdYear === 'MD-1' ? '72%' : 
-                         safeMdYear === 'MD-2' ? '85%' : 
-                         safeMdYear === 'MD-3' ? '45%' : '92%'}
+                        {(() => {
+                          // Calculate progress based on current date and academic year
+                          const now = new Date();
+                          const currentYear = now.getFullYear();
+                          const currentMonth = now.getMonth();
+                          
+                          // Academic year typically runs from August to May
+                          let academicProgress = 0;
+                          
+                          if (safeMdYear === 'MD-1') {
+                            // MD-1: First year (typically starts in August)
+                            const startDate = new Date(currentYear, 7, 1); // August 1st
+                            const endDate = new Date(currentYear + 1, 4, 31); // May 31st
+                            if (now >= startDate && now <= endDate) {
+                              academicProgress = Math.min(100, Math.round(((now.getTime() - startDate.getTime()) / (endDate.getTime() - startDate.getTime())) * 100));
+                            }
+                          } else if (safeMdYear === 'MD-2') {
+                            // MD-2: Second year
+                            academicProgress = Math.min(100, Math.round(((currentMonth + 1) / 12) * 100));
+                          } else if (safeMdYear === 'MD-3') {
+                            // MD-3: Third year (clinical rotations)
+                            academicProgress = Math.min(100, Math.round(((currentMonth + 1) / 12) * 100));
+                          } else if (safeMdYear === 'MD-4') {
+                            // MD-4: Fourth year (electives and residency prep)
+                            academicProgress = Math.min(100, Math.round(((currentMonth + 1) / 12) * 100));
+                          }
+                          
+                          return `${academicProgress}%`;
+                        })()}
                       </span>
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2">
                       <div 
                         className="bg-blue-600 h-2 rounded-full transition-all duration-300"
                         style={{ 
-                          width: safeMdYear === 'MD-1' ? '72%' : 
-                                 safeMdYear === 'MD-2' ? '85%' : 
-                                 safeMdYear === 'MD-3' ? '45%' : '92%'
+                          width: (() => {
+                            // Calculate progress based on current date and academic year
+                            const now = new Date();
+                            const currentYear = now.getFullYear();
+                            const currentMonth = now.getMonth();
+                            
+                            // Academic year typically runs from August to May
+                            let academicProgress = 0;
+                            
+                            if (safeMdYear === 'MD-1') {
+                              // MD-1: First year (typically starts in August)
+                              const startDate = new Date(currentYear, 7, 1); // August 1st
+                              const endDate = new Date(currentYear + 1, 4, 31); // May 31st
+                              if (now >= startDate && now <= endDate) {
+                                academicProgress = Math.min(100, Math.round(((now.getTime() - startDate.getTime()) / (endDate.getTime() - startDate.getTime())) * 100));
+                              }
+                            } else if (safeMdYear === 'MD-2') {
+                              // MD-2: Second year
+                              academicProgress = Math.min(100, Math.round(((currentMonth + 1) / 12) * 100));
+                            } else if (safeMdYear === 'MD-3') {
+                              // MD-3: Third year (clinical rotations)
+                              academicProgress = Math.min(100, Math.round(((currentMonth + 1) / 12) * 100));
+                            } else if (safeMdYear === 'MD-4') {
+                              // MD-4: Fourth year (electives and residency prep)
+                              academicProgress = Math.min(100, Math.round(((currentMonth + 1) / 12) * 100));
+                            }
+                            
+                            return `${academicProgress}%`;
+                          })()
                         }}
                       ></div>
                     </div>
@@ -1687,20 +1759,44 @@ function Dashboard() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3">
-                    <div className="flex items-center gap-3">
-                      <div className="h-2 w-2 bg-red-500 rounded-full"></div>
-                      <div className="flex-1">
-                        <p className="text-sm font-medium">Immunization Records</p>
-                        <p className="text-xs text-gray-500">Due tomorrow</p>
+                    {overdueAssignments.slice(0, 2).map((assignment, index) => (
+                      <div key={assignment.id} className="flex items-center gap-3">
+                        <div className="h-2 w-2 bg-red-500 rounded-full"></div>
+                        <div className="flex-1">
+                          <p className="text-sm font-medium">{assignment.title}</p>
+                          <p className="text-xs text-gray-500">Overdue</p>
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="h-2 w-2 bg-orange-500 rounded-full"></div>
-                      <div className="flex-1">
-                        <p className="text-sm font-medium">Ethics Essay</p>
-                        <p className="text-xs text-gray-500">Due in 3 days</p>
+                    ))}
+                    {assignmentsDue.slice(0, 2).map((assignment, index) => (
+                      <div key={assignment.id} className="flex items-center gap-3">
+                        <div className="h-2 w-2 bg-orange-500 rounded-full"></div>
+                        <div className="flex-1">
+                          <p className="text-sm font-medium">{assignment.title}</p>
+                          <p className="text-xs text-gray-500">
+                            {(() => {
+                              const now = Date.now();
+                              const dueTime = assignment.dueAt;
+                              const diffTime = dueTime - now;
+                              const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                              
+                              if (diffDays === 1) return 'Due tomorrow';
+                              if (diffDays <= 7) return `Due in ${diffDays} days`;
+                              return `Due ${new Date(dueTime).toLocaleDateString()}`;
+                            })()}
+                          </p>
+                        </div>
                       </div>
-                    </div>
+                    ))}
+                    {overdueAssignments.length === 0 && assignmentsDue.length === 0 && (
+                      <div className="flex items-center gap-3">
+                        <div className="h-2 w-2 bg-green-500 rounded-full"></div>
+                        <div className="flex-1">
+                          <p className="text-sm font-medium">No Urgent Tasks</p>
+                          <p className="text-xs text-gray-500">All caught up!</p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
