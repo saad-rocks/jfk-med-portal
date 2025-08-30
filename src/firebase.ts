@@ -25,40 +25,8 @@ export const db = getFirestore(app);
 export const storage = getStorage(app);
 export const functions = getFunctions(app);
 
-// Connect to emulators if in development mode
-if (import.meta.env.DEV) {
-  // Connect to available emulators only
-  import('firebase/firestore').then(({ connectFirestoreEmulator }) => {
-    try {
-      connectFirestoreEmulator(db, '127.0.0.1', 8080);
-    } catch (error) {
-      console.warn('Firestore emulator already connected or not available:', error);
-    }
-  });
-
-  import('firebase/functions').then(({ connectFunctionsEmulator }) => {
-    try {
-      connectFunctionsEmulator(functions, '127.0.0.1', 5001);
-    } catch (error) {
-      console.warn('Functions emulator already connected or not available:', error);
-    }
-  });
-
-  import('firebase/storage').then(({ connectStorageEmulator }) => {
-    try {
-      connectStorageEmulator(storage, '127.0.0.1', 9199);
-    } catch (error) {
-      console.warn('Storage emulator already connected or not available:', error);
-    }
-  });
-
-  // Note: Auth emulator is not running, so we'll use production Auth
-  // but Functions will still work with emulator since they're connected
-}
-
-// Enable persistence for offline support (only in production)
-if (typeof window !== 'undefined' && !import.meta.env.DEV) {
-  // Only run in browser environment and production
+// Enable offline persistence for production
+if (typeof window !== 'undefined') {
   import('firebase/firestore').then(({ enableIndexedDbPersistence }) => {
     enableIndexedDbPersistence(db).catch((err) => {
       if (err.code === 'failed-precondition') {

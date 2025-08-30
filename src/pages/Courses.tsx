@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { createCourse, listCourses, updateCourse, deleteCourse } from "../lib/courses";
 import type { CourseInput } from "../types";

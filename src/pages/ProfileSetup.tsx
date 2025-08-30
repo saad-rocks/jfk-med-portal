@@ -1,8 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useRole } from "../hooks/useRole";
-import { httpsCallable } from "firebase/functions";
-import { functions } from "../firebase";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Card, CardContent, CardHeader } from "../components/ui/card";
@@ -36,50 +34,72 @@ export default function ProfileSetup() {
     }
 
     try {
-      // Use the cloud function to create user profile
-      const createProfileFn = httpsCallable(functions, 'createUserProfile');
-      const result = await createProfileFn({
-        name: name.trim(),
-        role,
-        mdYear: role === 'student' ? mdYear : undefined
-      });
+      // Create user profile directly in Firestore (no cloud function needed)
+      const { collection, doc, setDoc, serverTimestamp, query, where, getDocs } = await import('firebase/firestore');
+      const { db } = await import('../firebase');
 
-      const data = result.data as {
-        ok: boolean;
-        profileId?: string;
-        message?: string;
-        existing?: boolean
-      };
+      // Check if profile already exists
+      const existingQuery = query(collection(db, 'users'), where('uid', '==', user!.uid));
+      const existingSnapshot = await getDocs(existingQuery);
 
-      if (data.ok) {
-        const successMessage = data.existing
-          ? "Profile already exists! Redirecting to dashboard..."
-          : "Profile created successfully! Redirecting to dashboard...";
-
-        setMessage({ text: successMessage, type: 'success' });
-
-        // Refresh the user profile data and then navigate
-        setTimeout(() => {
-          console.log("🔄 Refreshing user profile and redirecting...");
-          refreshProfile();
-
-          // Give a moment for the profile refresh to complete
-          setTimeout(() => {
-            console.log("🔄 Attempting navigation to dashboard...");
-            navigate("/", { replace: true });
-
-            // Fallback: If navigation doesn't work, force a page reload
-            setTimeout(() => {
-              if (window.location.pathname === '/profile-setup') {
-                console.log("🔄 Navigation failed, forcing page reload...");
-                window.location.href = '/';
-              }
-            }, 1000);
-          }, 500);
-        }, 1000);
+      if (!existingSnapshot.empty) {
+        // Profile already exists
+        const existingDoc = existingSnapshot.docs[0];
+        console.log(`ℹ️ User profile already exists: ${user!.uid} -> ${existingDoc.data().role}`);
+        setMessage({ text: "Profile already exists! Redirecting to dashboard...", type: 'success' });
       } else {
-        throw new Error("Failed to create profile");
+        // Create new user profile
+        const userProfile = {
+          uid: user!.uid,
+          name: name.trim(),
+          email: user!.email || null,
+          role: role,
+          status: 'active',
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        };
+
+        // Add role-specific fields
+        if (role === 'student') {
+          (userProfile as any).mdYear = mdYear;
+          (userProfile as any).studentId = `JFK${Date.now().toString().slice(-6)}`;
+          (userProfile as any).enrollmentDate = serverTimestamp();
+        } else if (role === 'teacher') {
+          (userProfile as any).employeeId = `JFK-FAC-${Date.now().toString().slice(-6)}`;
+          (userProfile as any).hireDate = serverTimestamp();
+        } else if (role === 'admin') {
+          (userProfile as any).adminLevel = 'regular';
+          (userProfile as any).permissions = ['user_management'];
+        }
+
+        // Create document with auto-generated ID
+        const docRef = doc(collection(db, 'users'));
+        await setDoc(docRef, userProfile);
+
+        console.log(`✅ User profile created: ${user!.uid} -> ${role}`);
+        setMessage({ text: "Profile created successfully! Redirecting to dashboard...", type: 'success' });
       }
+
+      // Refresh the user profile data and then navigate
+      setTimeout(() => {
+        console.log("🔄 Refreshing user profile and redirecting...");
+        refreshProfile();
+
+        // Give a moment for the profile refresh to complete
+        setTimeout(() => {
+          console.log("🔄 Attempting navigation to dashboard...");
+          navigate("/", { replace: true });
+
+          // Fallback: If navigation doesn't work, force a page reload
+          setTimeout(() => {
+            if (window.location.pathname === '/profile-setup') {
+              console.log("🔄 Navigation failed, forcing page reload...");
+              window.location.href = '/';
+            }
+          }, 1000);
+        }, 500);
+      }, 1000);
+
     } catch (error: any) {
       console.error("Profile setup error:", error);
       console.error("Error details:", {
@@ -92,24 +112,14 @@ export default function ProfileSetup() {
       // More specific error messages
       let errorMessage = "Failed to create profile. Please try again.";
 
-      if (error.message?.includes("already-exists")) {
-        errorMessage = "Profile already exists. Please contact an administrator.";
-      } else if (error.message?.includes("unauthenticated")) {
-        errorMessage = "You must be logged in to create a profile.";
-      } else if (error.message?.includes("permission-denied")) {
-        errorMessage = "You don't have permission to create a profile.";
-      } else if (error.message?.includes("invalid-argument")) {
-        errorMessage = "Invalid information provided. Please check your input.";
-      } else if (error.code === 'functions/cancelled') {
+      if (error.code === 'permission-denied') {
+        errorMessage = "Permission denied. Please check Firestore security rules.";
+      } else if (error.code === 'unavailable') {
+        errorMessage = "Firestore is temporarily unavailable. Please try again.";
+      } else if (error.code === 'cancelled') {
         errorMessage = "Request was cancelled. Please try again.";
-      } else if (error.code === 'functions/not-found') {
-        errorMessage = "Profile creation service is not available. Please try again later.";
-      } else if (error.code === 'functions/unavailable') {
-        errorMessage = "Service is temporarily unavailable. Please try again later.";
-      } else if (error.code === 'functions/internal') {
-        errorMessage = "Server error occurred. Please try again.";
-      } else if (error.code === 'functions/failed-precondition') {
-        errorMessage = "Invalid request. Please check your information and try again.";
+      } else if (error.code === 'deadline-exceeded') {
+        errorMessage = "Request timed out. Please check your connection and try again.";
       }
 
       setMessage({

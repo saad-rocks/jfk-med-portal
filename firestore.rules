@@ -124,10 +124,22 @@ service cloud.firestore {
        allow read, write: if isSignedIn();
      }
      
-     // Clinical Assessments collection rules
-     match /clinicalAssessments/{assessmentId} {
-       allow read, write: if isSignedIn();
-     }
+         // Clinical Assessments collection rules
+    match /clinicalAssessments/{assessmentId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Attendance collection rules
+    match /attendance/{recordId} {
+      // Read access - authenticated users can read attendance records
+      allow get, list: if isSignedIn();
+
+      // Write access - authenticated users can create attendance records
+      // Teachers and admins can update attendance records
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn(); // Temporarily allow all for demo
+      // TODO: Restrict to admin/teacher for updates once proper claims are set up
+    }
   }
 }
 

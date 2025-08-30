@@ -41,6 +41,9 @@ export default function CourseDetail() {
       console.log('🔍 Fetching course data for courseId:', courseId);
       
       // Fetch course details
+      if (!courseId) {
+        throw new Error('Course ID is required');
+      }
       const courseDoc = await getDoc(doc(db, 'courses', courseId));
       console.log('📋 Course document exists:', courseDoc.exists());
       if (courseDoc.exists()) {

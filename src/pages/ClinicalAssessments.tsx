@@ -546,8 +546,10 @@ export default function ClinicalAssessments() {
                           variant="outline"
                           size="sm"
                           onClick={() => {
-                            setSelectedStudent(student.uid);
-                            setShowAssessmentForm(true);
+                            if (student.uid) {
+                              setSelectedStudent(student.uid);
+                              setShowAssessmentForm(true);
+                            }
                           }}
                         >
                           Assess Student

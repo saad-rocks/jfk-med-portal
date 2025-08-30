@@ -23,7 +23,7 @@ import {
   Plus,
   Edit2,
   Trash2,
-  Shield,
+  ShieldCheck,
   AlertTriangle
 } from 'lucide-react';
 
@@ -120,7 +120,7 @@ export default function Sessions() {
     return (
       <div className="p-6">
         <Card className="p-8 text-center">
-          <Shield className="h-16 w-16 text-red-500 mx-auto mb-4" />
+          <ShieldCheck className="h-16 w-16 text-red-500 mx-auto mb-4" />
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Access Denied</h2>
           <p className="text-gray-600">You don't have permission to access session management.</p>
         </Card>
@@ -238,13 +238,13 @@ export default function Sessions() {
                       onClick={() => session.id && handleSetAsCurrent(session.id)}
                       className="text-blue-600 border-blue-200 hover:bg-blue-50"
                     >
-                      <Shield className="h-4 w-4 mr-1" />
+                      <ShieldCheck className="h-4 w-4 mr-1" />
                       Set as Current
                     </Button>
                   )}
                   {session.isCurrent && (
                     <Badge className="bg-blue-100 text-blue-800 border-blue-200">
-                      <Shield className="h-3 w-3 mr-1" />
+                      <ShieldCheck className="h-3 w-3 mr-1" />
                       Current Session
                     </Badge>
                   )}
@@ -534,7 +534,7 @@ function SessionModal({ session, onClose, onSave }: SessionModalProps) {
           </div>
           {formData.isCurrent && (
             <p className="text-xs text-blue-600 bg-blue-50 p-2 rounded">
-              <Shield className="inline h-3 w-3 mr-1" />
+              <ShieldCheck className="inline h-3 w-3 mr-1" />
               This will set this session as the current active session. Only one session can be current at a time.
             </p>
           )}

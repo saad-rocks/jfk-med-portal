@@ -1,0 +1,35 @@
+@echo off
+REM JFK Medical Portal - Data Persistence Fix Script (Windows)
+REM This script sets up Firebase emulators with proper data persistence
+
+echo 🔧 JFK Medical Portal - Data Persistence Fix
+echo ==========================================
+echo.
+
+REM Create firebase-data directory for persistence
+echo 📁 Creating firebase-data directory...
+if not exist firebase-data mkdir firebase-data
+echo.
+
+REM Build functions
+echo 🔨 Building Firebase functions...
+cd functions
+call npm run build
+cd ..
+echo.
+
+REM Start emulators with data persistence
+echo 🚀 Starting Firebase emulators with data persistence...
+echo    - Auth: http://localhost:9099
+echo    - Firestore: http://localhost:8080
+echo    - Functions: http://localhost:5001
+echo    - Storage: http://localhost:9199
+echo    - UI: http://localhost:4000
+echo.
+echo 📊 Data will be saved to .\firebase-data\
+echo 🔄 Emulators will persist data between restarts
+echo.
+echo Press Ctrl+C to stop emulators and save data
+echo.
+
+firebase emulators:start --import=./firebase-data --export-on-exit=./firebase-data

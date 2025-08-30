@@ -1,10 +1,7 @@
 // Clean App.tsx file - recreating from scratch
 import React from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { useEffect, useState, Suspense, lazy } from "react";
-import { onAuthStateChanged } from "firebase/auth";
-import type { User } from "firebase/auth";
-import { auth } from "./firebase";
+import { Suspense, lazy } from "react";
 import { useRole } from "./hooks/useRole";
 import AppShell from "./layouts/AppShell";
 import "./lib/runSeed"; // Make seeding functions available globally

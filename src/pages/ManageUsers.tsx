@@ -26,7 +26,7 @@ import {
   ArrowLeft,
   GraduationCap,
   BookOpen,
-  Shield,
+  ShieldCheck,
   Mail,
   Phone,
   Calendar,
@@ -130,7 +130,7 @@ export default function ManageUsers() {
     return (
       <div className="p-6">
         <Card className="p-8 text-center">
-          <Shield className="h-16 w-16 text-red-500 mx-auto mb-4" />
+          <ShieldCheck className="h-16 w-16 text-red-500 mx-auto mb-4" />
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Access Denied</h2>
           <p className="text-gray-600">You don't have permission to access user management.</p>
         </Card>
@@ -279,7 +279,7 @@ export default function ManageUsers() {
                 onClick={() => handleViewUsers('admin')}>
             <div className="text-center">
               <div className="h-16 w-16 bg-gradient-to-r from-purple-500 to-pink-500 rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform duration-300">
-                <Shield className="h-8 w-8 text-white" />
+                <ShieldCheck className="h-8 w-8 text-white" />
               </div>
               <h3 className="text-2xl font-bold text-gray-900 mb-2">Administrators</h3>
               <p className="text-gray-600 mb-4">System administrators and staff</p>
@@ -480,7 +480,7 @@ export default function ManageUsers() {
               {user.role === 'admin' && (
                 <>
                   <div className="flex items-center gap-2">
-                    <Shield className="h-4 w-4" />
+                    <ShieldCheck className="h-4 w-4" />
                     <Badge variant={user.adminLevel === 'super' ? 'default' : 'secondary'}>
                       {user.adminLevel} Admin
                     </Badge>

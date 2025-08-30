@@ -1147,7 +1147,9 @@ export async function seedDatabase() {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
-      userIds[user.uid] = userRef.id;
+      if (user.uid) {
+        userIds[user.uid] = userRef.id;
+      }
       console.log(`✅ Created user: ${user.name}`);
     }
     

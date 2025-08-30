@@ -23,18 +23,18 @@ async function isCallerAdmin(caller: any): Promise<boolean> {
     }
 
     // Check if user has admin role in Firestore
-    const userRef = db.collection('users').where('uid', '==', caller.uid);
+    const userRef = db.collection("users").where("uid", "==", caller.uid);
     const snapshot = await userRef.get();
 
     if (!snapshot.empty) {
       const userDoc = snapshot.docs[0];
       const userData = userDoc.data();
-      return userData.role === 'admin';
+      return userData.role === "admin";
     }
 
     return false;
   } catch (error) {
-    console.error('Error checking admin status:', error);
+    console.error("Error checking admin status:", error);
     return false;
   }
 }
@@ -53,14 +53,14 @@ export const setUserRole = onCall(async (request) => {
   }
 
   // Validate role
-  const validRoles = ['student', 'teacher', 'admin'];
+  const validRoles = ["student", "teacher", "admin"];
   if (!validRoles.includes(role)) {
     throw new HttpsError("invalid-argument", "Invalid role specified");
   }
 
   try {
     // Update role in Firestore user profile
-    const userRef = db.collection('users').where('uid', '==', uid);
+    const userRef = db.collection("users").where("uid", "==", uid);
     const snapshot = await userRef.get();
 
     if (snapshot.empty) {
@@ -74,7 +74,7 @@ export const setUserRole = onCall(async (request) => {
     };
 
     // Add MD year for students
-    if (role === 'student' && mdYear) {
+    if (role === "student" && mdYear) {
       updateData.mdYear = mdYear;
     }
 
@@ -83,7 +83,7 @@ export const setUserRole = onCall(async (request) => {
     console.log(`✅ User role updated: ${uid} -> ${role}`);
     return { ok: true, message: `User role updated to ${role}` };
   } catch (error) {
-    console.error('Error updating user role:', error);
+    console.error("Error updating user role:", error);
     throw new HttpsError("internal", "Failed to update user role");
   }
 });
@@ -113,7 +113,7 @@ export const findUserByEmailOrUid = onCall(async (request) => {
     // Also get Firestore profile if it exists
     let profile = null;
     try {
-      const userRef = db.collection('users').where('uid', '==', userRecord.uid);
+      const userRef = db.collection("users").where("uid", "==", userRecord.uid);
       const snapshot = await userRef.get();
 
       if (!snapshot.empty) {
@@ -124,7 +124,7 @@ export const findUserByEmailOrUid = onCall(async (request) => {
         };
       }
     } catch (profileError) {
-      console.warn('Could not fetch user profile:', profileError);
+      console.warn("Could not fetch user profile:", profileError);
     }
 
     return {
@@ -134,7 +134,7 @@ export const findUserByEmailOrUid = onCall(async (request) => {
       profile: profile
     };
   } catch (error) {
-    console.error('Error finding user:', error);
+    console.error("Error finding user:", error);
     if (error instanceof HttpsError) {
       throw error;
     }
@@ -149,14 +149,14 @@ export const createUserProfile = onCall(async (request) => {
     throw new HttpsError("unauthenticated", "Must be authenticated");
   }
 
-  const { name, role = 'student', mdYear } = (request.data ?? {});
+  const { name, role = "student", mdYear } = (request.data ?? {});
   if (!name) {
     throw new HttpsError("invalid-argument", "name is required");
   }
 
   try {
     // Check if profile already exists
-    const existingRef = db.collection('users').where('uid', '==', caller.uid);
+    const existingRef = db.collection("users").where("uid", "==", caller.uid);
     const existingSnapshot = await existingRef.get();
 
     if (!existingSnapshot.empty) {
@@ -177,25 +177,25 @@ export const createUserProfile = onCall(async (request) => {
       name: name,
       email: (caller as any).email || null,
       role: role,
-      status: 'active',
+      status: "active",
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp()
     };
 
     // Add role-specific fields
-    if (role === 'student') {
-      userProfile.mdYear = mdYear || 'MD-1';
+    if (role === "student") {
+      userProfile.mdYear = mdYear || "MD-1";
       userProfile.studentId = `JFK${Date.now().toString().slice(-6)}`;
       userProfile.enrollmentDate = FieldValue.serverTimestamp();
-    } else if (role === 'teacher') {
+    } else if (role === "teacher") {
       userProfile.employeeId = `JFK-FAC-${Date.now().toString().slice(-6)}`;
       userProfile.hireDate = FieldValue.serverTimestamp();
-    } else if (role === 'admin') {
-      userProfile.adminLevel = 'regular';
-      userProfile.permissions = ['user_management'];
+    } else if (role === "admin") {
+      userProfile.adminLevel = "regular";
+      userProfile.permissions = ["user_management"];
     }
 
-    const docRef = await db.collection('users').add(userProfile);
+    const docRef = await db.collection("users").add(userProfile);
 
     console.log(`✅ User profile created: ${caller.uid} -> ${role}`);
     return {
@@ -205,7 +205,7 @@ export const createUserProfile = onCall(async (request) => {
       existing: false
     };
   } catch (error) {
-    console.error('Error creating user profile:', error);
+    console.error("Error creating user profile:", error);
     if (error instanceof HttpsError) {
       throw error;
     }

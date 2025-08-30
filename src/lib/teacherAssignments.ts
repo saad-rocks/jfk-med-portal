@@ -491,3 +491,56 @@ export async function adminRemoveTeacherAssignment(courseId: string): Promise<vo
     throw error;
   }
 }
+
+// Create sample teacher assignments for testing
+export async function createSampleTeacherAssignments(): Promise<void> {
+  try {
+    console.log('🎯 Creating sample teacher assignments...');
+
+    // Get all users and courses
+    const users = await getAllUsers();
+    const teachers = users.filter(u => u.role === 'teacher');
+    const courses = await getDocs(collection(db, 'courses'));
+
+    if (teachers.length === 0) {
+      console.log('❌ No teachers found in database');
+      return;
+    }
+
+    if (courses.empty) {
+      console.log('❌ No courses found in database');
+      return;
+    }
+
+    const courseDocs = courses.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+    // Create assignments for each teacher with some courses
+    for (let i = 0; i < teachers.length; i++) {
+      const teacher = teachers[i];
+      const teacherCourses = courseDocs.slice(i * 2, (i + 1) * 2); // Assign 2 courses per teacher
+
+      for (const course of teacherCourses) {
+        try {
+          const assignmentInput: CreateTeacherAssignmentInput = {
+            teacherId: teacher.id!,
+            teacherEmail: teacher.email!,
+            courseId: course.id,
+            courseCode: (course as any).code || `COURSE${course.id.slice(0, 4)}`,
+            courseTitle: (course as any).title || `Course ${course.id.slice(0, 8)}`,
+            semester: (course as any).semester || 'MD-1'
+          };
+
+          await createTeacherAssignment(assignmentInput);
+          console.log(`✅ Created assignment: ${teacher.email} -> ${(course as any).title}`);
+        } catch (error) {
+          console.log(`⚠️ Assignment already exists or error: ${teacher.email} -> ${(course as any).title}`);
+        }
+      }
+    }
+
+    console.log('🎉 Sample teacher assignments created successfully!');
+  } catch (error) {
+    console.error('Error creating sample teacher assignments:', error);
+    throw error;
+  }
+}

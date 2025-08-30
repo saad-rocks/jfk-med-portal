@@ -129,11 +129,13 @@ export type Semester = {
 
 export type AttendanceRecord = {
   id?: string;
-  sessionId: string;
+  courseId: string;
   studentId: string;
+  date: string; // YYYY-MM-DD format
   status: "present" | "absent" | "late" | "excused";
   timestamp: number;
   notes?: string;
+  markedBy?: string; // teacher/admin who marked attendance
 };
 
 export type GradeRecord = {

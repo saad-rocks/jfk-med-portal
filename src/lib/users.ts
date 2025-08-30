@@ -92,12 +92,25 @@ export async function getAllUsers(): Promise<UserProfile[]> {
       const data = doc.data();
       return {
         id: doc.id,
-        ...data,
-        // Ensure all required fields have defaults
+        uid: data.uid, // Explicitly include uid from document data
+        name: data.name,
+        email: data.email,
+        phone: data.phone,
         role: data.role || 'student',
         status: data.status || 'active',
         createdAt: data.createdAt || Timestamp.now(),
         updatedAt: data.updatedAt || Timestamp.now(),
+        // Include optional fields
+        mdYear: data.mdYear,
+        studentId: data.studentId,
+        gpa: data.gpa,
+        enrollmentDate: data.enrollmentDate,
+        department: data.department,
+        specialization: data.specialization,
+        employeeId: data.employeeId,
+        hireDate: data.hireDate,
+        adminLevel: data.adminLevel,
+        permissions: data.permissions,
       } as UserProfile;
     });
 
@@ -482,8 +495,7 @@ export async function createTeacherUser(userData: Omit<CreateUserInput, 'role'>)
   return createUser({
     ...userData,
     role: 'teacher',
-    hireDate: Timestamp.now(),
-    status: 'active'
+    hireDate: Timestamp.now()
   });
 }
 
@@ -493,9 +505,49 @@ export async function createStudentUser(userData: Omit<CreateUserInput, 'role'>,
     ...userData,
     role: 'student',
     mdYear: mdYear || 'MD-1',
-    enrollmentDate: Timestamp.now(),
-    status: 'active'
+    enrollmentDate: Timestamp.now()
   });
+}
+
+// Fix uid field for existing users who might be missing it
+export async function fixUserUids(): Promise<void> {
+  try {
+    console.log('Fixing uid fields for existing users...');
+
+    const usersRef = collection(db, USERS_COLLECTION);
+    const querySnapshot = await getDocs(usersRef);
+
+    const batch = writeBatch(db);
+    let updateCount = 0;
+
+    querySnapshot.forEach((doc) => {
+      const data = doc.data();
+
+      // If uid is missing but we have an email, try to find the auth user
+      if (!data.uid && data.email) {
+        // For now, we'll set a placeholder uid based on email
+        // In a real scenario, you'd need to match with Firebase Auth users
+        const placeholderUid = `user_${doc.id}_${Date.now()}`;
+        console.log(`Setting placeholder uid for user ${data.email}: ${placeholderUid}`);
+
+        batch.update(doc.ref, {
+          uid: placeholderUid,
+          updatedAt: Timestamp.now()
+        });
+        updateCount++;
+      }
+    });
+
+    if (updateCount > 0) {
+      await batch.commit();
+      console.log(`Updated ${updateCount} users with uid fields`);
+    } else {
+      console.log('All users already have uid fields');
+    }
+  } catch (error) {
+    console.error('Error fixing user uids:', error);
+    throw new Error('Failed to fix user uids');
+  }
 }
 
 // Helper to ensure role consistency - syncs role data

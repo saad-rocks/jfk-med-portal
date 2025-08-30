@@ -690,11 +690,15 @@ function Dashboard() {
                       <div className="text-center">
                         <div className="text-2xl font-bold text-orange-600">
                           {(() => {
-                            const startDate = nextSession.startDate instanceof Date 
-                              ? nextSession.startDate 
+                            const startDate = nextSession.startDate instanceof Date
+                              ? nextSession.startDate
                               : nextSession.startDate.toDate();
-                            const daysUntil = Math.ceil((startDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-                            return daysUntil > 0 ? daysUntil : 0;
+                            const now = new Date();
+                            const nowMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                            const startMidnight = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+
+                            const daysUntil = Math.round((startMidnight.getTime() - nowMidnight.getTime()) / (1000 * 60 * 60 * 24));
+                            return Math.max(daysUntil, 0);
                           })()}
                         </div>
                         <div className="text-sm text-orange-700">Days until next session</div>
