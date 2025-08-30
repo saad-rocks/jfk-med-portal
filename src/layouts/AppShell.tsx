@@ -177,7 +177,7 @@ export default function AppShell() {
                 ) : (
                   <SidebarLink to="/assignments" icon={<ClipboardList size={20} />} label="Assignments" />
                 )}
-                <SidebarLink to="/gradebook" icon={<GraduationCap size={20} />} label="Gradebook" />
+                {/* Gradebook is now accessed through course detail pages */}
                 <SidebarLink to="/attendance" icon={<CalendarCheck size={20} />} label="Attendance" />
                 <SidebarLink to="/announcements" icon={<FileText size={20} />} label="Announcements" />
                 <SidebarLink to="/semesters" icon={<Layers size={20} />} label="Semesters" />

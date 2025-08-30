@@ -17,6 +17,7 @@ import {
   updateProfile
 } from 'firebase/auth';
 import { db, auth } from '../firebase';
+import type { Role, MDYear } from '../types';
 
 export interface UserProfile {
   id?: string;
@@ -52,17 +53,19 @@ export interface CreateUserInput {
   password: string;
   phone?: string;
   role: 'student' | 'teacher' | 'admin';
-  
+
   // Student specific
   mdYear?: 'MD-1' | 'MD-2' | 'MD-3' | 'MD-4' | 'MD-5' | 'MD-6' | 'MD-7' | 'MD-8' | 'MD-9' | 'MD-10' | 'MD-11';
   studentId?: string;
   gpa?: number;
-  
+  enrollmentDate?: Timestamp | Date;
+
   // Teacher specific
   department?: string;
   specialization?: string;
   employeeId?: string;
-  
+  hireDate?: Timestamp | Date;
+
   // Admin specific
   adminLevel?: 'super' | 'regular';
   permissions?: string[];
@@ -464,11 +467,58 @@ function generateEmployeeId(): string {
   return `JFK-FAC-${randomNum}`;
 }
 
+// Create admin user with proper role assignment
+export async function createAdminUser(userData: Omit<CreateUserInput, 'role'>): Promise<UserProfile> {
+  return createUser({
+    ...userData,
+    role: 'admin',
+    adminLevel: 'super',
+    permissions: ['user_management', 'system_admin', 'user_creation']
+  });
+}
+
+// Create teacher user with proper role assignment
+export async function createTeacherUser(userData: Omit<CreateUserInput, 'role'>): Promise<UserProfile> {
+  return createUser({
+    ...userData,
+    role: 'teacher',
+    hireDate: Timestamp.now(),
+    status: 'active'
+  });
+}
+
+// Create student user with proper role assignment
+export async function createStudentUser(userData: Omit<CreateUserInput, 'role'>, mdYear?: MDYear): Promise<UserProfile> {
+  return createUser({
+    ...userData,
+    role: 'student',
+    mdYear: mdYear || 'MD-1',
+    enrollmentDate: Timestamp.now(),
+    status: 'active'
+  });
+}
+
+// Helper to ensure role consistency - syncs role data
+export async function syncUserRole(uid: string, role: Role, mdYear?: MDYear): Promise<void> {
+  try {
+    const userProfile = await getUserByUid(uid);
+    if (userProfile && userProfile.id) {
+      await updateUser(userProfile.id, { role, mdYear });
+      console.log('✅ User role synchronized:', uid, role);
+    } else {
+      console.warn('⚠️ Cannot sync role - user profile not found:', uid);
+    }
+  } catch (error) {
+    console.error('❌ Error syncing user role:', error);
+    throw new Error('Failed to sync user role');
+  }
+}
+
 // Batch operations for bulk user management
 export async function batchUpdateUsers(updates: { id: string; data: Partial<UserProfile> }[]): Promise<void> {
   try {
     const batch = writeBatch(db);
-    
+
     updates.forEach(({ id, data }) => {
       const userRef = doc(db, USERS_COLLECTION, id);
       batch.update(userRef, {
@@ -476,7 +526,7 @@ export async function batchUpdateUsers(updates: { id: string; data: Partial<User
         updatedAt: Timestamp.now()
       });
     });
-    
+
     await batch.commit();
   } catch (error) {
     console.error('Error batch updating users:', error);

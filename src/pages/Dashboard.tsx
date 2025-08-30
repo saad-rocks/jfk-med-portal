@@ -930,7 +930,7 @@ function Dashboard() {
                       case 'quiz': return 'bg-vital-100 text-vital-700 border-vital-200';
                       case 'midterm': return 'bg-alert-100 text-alert-700 border-alert-200';
                       case 'final': return 'bg-critical-100 text-critical-700 border-critical-200';
-                      case 'osce': return 'bg-health-100 text-health-700 border-health-200';
+
                       default: return 'bg-slate-100 text-slate-700 border-slate-200';
                     }
                   };
@@ -941,7 +941,7 @@ function Dashboard() {
                       case 'quiz': return 'Quiz';
                       case 'midterm': return 'Midterm';
                       case 'final': return 'Final';
-                      case 'osce': return 'OSCE';
+
                       default: return type;
                     }
                   };
@@ -952,7 +952,7 @@ function Dashboard() {
                       case 'quiz': return Target;
                       case 'midterm': return Award;
                       case 'final': return Award;
-                      case 'osce': return Target;
+
                       default: return FileText;
                     }
                   };
@@ -1467,7 +1467,7 @@ function Dashboard() {
                     <div className="flex items-center gap-4 p-3 bg-orange-50 rounded-lg">
                       <div className="h-2 w-2 bg-orange-600 rounded-full"></div>
                       <div className="flex-1">
-                        <p className="font-medium text-gray-900">OSCE Practice Session</p>
+
                         <p className="text-sm text-gray-600">Various Stations • Clinical Center</p>
                       </div>
                       <div className="text-right">

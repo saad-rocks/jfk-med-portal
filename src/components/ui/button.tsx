@@ -29,18 +29,20 @@ const buttonStyles = cva(
 type Props = DetailedHTMLProps<ButtonHTMLAttributes<HTMLButtonElement>, HTMLButtonElement> &
   VariantProps<typeof buttonStyles> & { asChild?: boolean };
 
-export function Button({ className, variant, size, onClick, ...props }: Props) {
+export function Button({ className, variant, size, onClick, asChild, ...props }: Props) {
   const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
-    console.log('Button clicked:', { variant, size, className, disabled: e.currentTarget.disabled });
     if (onClick && !e.currentTarget.disabled) {
       onClick(e);
     }
   };
 
-  return <button 
-    className={clsx(buttonStyles({ variant, size }), className)} 
+  // Remove asChild from props to avoid React warnings
+  const { asChild: _, ...buttonProps } = props as any;
+
+  return <button
+    className={clsx(buttonStyles({ variant, size }), className)}
     onClick={handleClick}
-    {...props} 
+    {...buttonProps}
   />;
 }
 

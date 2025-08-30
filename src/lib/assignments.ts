@@ -198,22 +198,33 @@ export async function calculateAttendanceForUser(userId: string): Promise<number
       return 0;
     }
 
-    // Get all sessions for enrolled courses
-    const { getAllSessions } = await import('./sessions');
-    const allSessions = await getAllSessions();
+    // Get all class sessions for enrolled courses
+    const { collection, getDocs, query, where } = await import('firebase/firestore');
+    const { db } = await import('../firebase');
     
     const enrolledCourseIds = enrollments.map(e => e.courseId);
-    const relevantSessions = allSessions.filter(session => 
-      enrolledCourseIds.includes(session.courseId)
-    );
+    const relevantSessions: Array<{id: string, courseId: string}> = [];
+    
+    for (const courseId of enrolledCourseIds) {
+      try {
+        const sessionsQuery = query(
+          collection(db, "classSessions"),
+          where("courseId", "==", courseId)
+        );
+        const sessionsSnapshot = await getDocs(sessionsQuery);
+        sessionsSnapshot.forEach(doc => {
+          relevantSessions.push({ id: doc.id, courseId: doc.data().courseId });
+        });
+      } catch (error) {
+        console.error(`Error fetching class sessions for course ${courseId}:`, error);
+      }
+    }
 
     if (relevantSessions.length === 0) {
       return 100; // No sessions means perfect attendance
     }
 
     // Get attendance records for the user
-    const { collection, getDocs, query, where } = await import('firebase/firestore');
-    const { db } = await import('../firebase');
     
     let totalSessions = 0;
     let attendedSessions = 0;

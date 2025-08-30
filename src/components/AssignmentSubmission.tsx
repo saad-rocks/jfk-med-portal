@@ -21,6 +21,8 @@ import {
   Eye
 } from "lucide-react";
 import type { Assignment, Submission } from "../types";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { storage } from "../firebase";
 
 interface AssignmentSubmissionProps {
   assignment: Assignment;
@@ -40,9 +42,11 @@ export default function AssignmentSubmission({
 }: AssignmentSubmissionProps) {
   const { user } = useRole();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [existingSubmission, setExistingSubmission] = useState<Submission | null>(null);
   const [attachments, setAttachments] = useState<File[]>([]);
   const [dragActive, setDragActive] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const {
     register,
@@ -102,14 +106,30 @@ export default function AssignmentSubmission({
     }
   };
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
     if (files.length > 0) {
       const file = files[0];
       setAttachments([file]);
-      // In a real app, you'd upload the file to storage and get back a URL
-      // For now, we'll just use the file name as placeholder
-      setValue("fileUrl", file.name);
+      setUploadError(null);
+      setIsUploading(true);
+      
+      try {
+        // Upload file to Firebase Storage
+        const storageRef = ref(storage, `submissions/${assignment.courseId}/${assignment.id}/${user?.uid}/${file.name}`);
+        const snapshot = await uploadBytes(storageRef, file);
+        const downloadURL = await getDownloadURL(snapshot.ref);
+        
+        setValue("fileUrl", downloadURL);
+        console.log("File uploaded successfully:", downloadURL);
+      } catch (error) {
+        console.error("Error uploading file:", error);
+        setUploadError("Failed to upload file. Please try again.");
+        // Fallback to filename if upload fails
+        setValue("fileUrl", file.name);
+      } finally {
+        setIsUploading(false);
+      }
     }
   };
 
@@ -123,7 +143,7 @@ export default function AssignmentSubmission({
     }
   };
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
@@ -131,7 +151,25 @@ export default function AssignmentSubmission({
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       const file = e.dataTransfer.files[0];
       setAttachments([file]);
-      setValue("fileUrl", file.name);
+      setUploadError(null);
+      setIsUploading(true);
+      
+      try {
+        // Upload file to Firebase Storage
+        const storageRef = ref(storage, `submissions/${assignment.courseId}/${assignment.id}/${user?.uid}/${file.name}`);
+        const snapshot = await uploadBytes(storageRef, file);
+        const downloadURL = await getDownloadURL(snapshot.ref);
+        
+        setValue("fileUrl", downloadURL);
+        console.log("File uploaded successfully:", downloadURL);
+      } catch (error) {
+        console.error("Error uploading file:", error);
+        setUploadError("Failed to upload file. Please try again.");
+        // Fallback to filename if upload fails
+        setValue("fileUrl", file.name);
+      } finally {
+        setIsUploading(false);
+      }
     }
   };
 
@@ -146,7 +184,7 @@ export default function AssignmentSubmission({
       case 'quiz': return 'Quiz';
       case 'midterm': return 'Midterm';
       case 'final': return 'Final';
-      case 'osce': return 'OSCE';
+
       default: return type;
     }
   };
@@ -157,7 +195,7 @@ export default function AssignmentSubmission({
       case 'quiz': return 'bg-green-100 text-green-700 border-green-200';
       case 'midterm': return 'bg-orange-100 text-orange-700 border-orange-200';
       case 'final': return 'bg-red-100 text-red-700 border-red-200';
-      case 'osce': return 'bg-purple-100 text-purple-700 border-purple-200';
+
       default: return 'bg-gray-100 text-gray-700 border-gray-200';
     }
   };
@@ -384,20 +422,30 @@ export default function AssignmentSubmission({
                 </div>
                 
                 <div>
-                  <label
-                    htmlFor="file-upload"
-                    className="cursor-pointer"
-                  >
-                    <p className="text-lg font-medium text-slate-700 mb-2">
-                      Drop your file here or click to browse
-                    </p>
-                    <p className="text-slate-500 mb-4">
-                      Supported formats: PDF, DOC, DOCX, TXT, JPG, PNG, ZIP, RAR
-                    </p>
-                    <Button variant="outline" className="px-6 py-2">
-                      Choose File
-                    </Button>
-                  </label>
+                  {isUploading ? (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-center gap-3">
+                        <div className="w-6 h-6 border-2 border-medical-600 border-t-transparent rounded-full animate-spin" />
+                        <span className="text-lg font-medium text-medical-600">Uploading file...</span>
+                      </div>
+                      <p className="text-sm text-slate-500">Please wait while we upload your file</p>
+                    </div>
+                  ) : (
+                    <label
+                      htmlFor="file-upload"
+                      className="cursor-pointer"
+                    >
+                      <p className="text-lg font-medium text-slate-700 mb-2">
+                        Drop your file here or click to browse
+                      </p>
+                      <p className="text-slate-500 mb-4">
+                        Supported formats: PDF, DOC, DOCX, TXT, JPG, PNG, ZIP, RAR
+                      </p>
+                      <Button variant="outline" className="px-6 py-2">
+                        Choose File
+                      </Button>
+                    </label>
+                  )}
                 </div>
               </div>
             </div>
@@ -426,6 +474,13 @@ export default function AssignmentSubmission({
                     Remove
                   </Button>
                 </div>
+              </div>
+            )}
+            
+            {uploadError && (
+              <div className="flex items-center gap-2 text-critical-600 bg-critical-50 border border-critical-200 rounded-lg p-3">
+                <AlertCircle size={16} />
+                <span className="text-sm">{uploadError}</span>
               </div>
             )}
             
@@ -472,13 +527,18 @@ export default function AssignmentSubmission({
             </Button>
             <Button
               type="submit"
-              disabled={isSubmitting || attachments.length === 0}
+              disabled={isSubmitting || isUploading || attachments.length === 0}
               className="flex-1 sm:flex-none px-8 py-3 bg-gradient-to-r from-medical-600 to-health-600 hover:from-medical-700 hover:to-health-700"
             >
               {isSubmitting ? (
                 <>
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
                   Submitting...
+                </>
+              ) : isUploading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                  Uploading...
                 </>
               ) : (
                 <>

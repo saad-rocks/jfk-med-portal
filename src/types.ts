@@ -1,4 +1,4 @@
-export type AssignmentType = "hw" | "quiz" | "midterm" | "final" | "osce";
+export type AssignmentType = "hw" | "quiz" | "midterm" | "final" | "presentation" | "homework";
 
 export type Assignment = {
   id?: string;

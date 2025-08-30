@@ -315,7 +315,7 @@ export default function CreateAssignment({
     { value: "quiz", label: "Quiz", color: "bg-vital-100 text-vital-700 border-vital-200", icon: Target },
     { value: "midterm", label: "Midterm", color: "bg-alert-100 text-alert-700 border-alert-200", icon: Award },
     { value: "final", label: "Final", color: "bg-critical-100 text-critical-700 border-critical-200", icon: Award },
-    { value: "osce", label: "OSCE", color: "bg-health-100 text-health-700 border-health-200", icon: Target },
+
   ];
 
   return (

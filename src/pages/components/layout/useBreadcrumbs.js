@@ -16,7 +16,7 @@ function useBreadcrumbs() {
         "/announcements": "Announcements",
         "/semesters": "Semesters",
         "/settings": "Settings",
-        "/osce": "OSCE",
+
         "/clinical": "Clinical",
         "/immunizations": "Immunizations",
     };

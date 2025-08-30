@@ -325,6 +325,7 @@ export async function updateCurrentSessionStatus(): Promise<void> {
   } catch (error) {
     console.error('Error updating current session status:', error);
   }
+
 }
 
 // Get session display name
@@ -369,7 +370,6 @@ export function getSessionProgress(session: Session): number {
   
   return Math.round((elapsed / totalDuration) * 100);
 }
-
 // Initialize default sessions for current year
 export async function initializeDefaultSessions(year: number = new Date().getFullYear()): Promise<void> {
   try {
@@ -414,3 +414,4 @@ export async function initializeDefaultSessions(year: number = new Date().getFul
     console.error('Error initializing default sessions:', error);
   }
 }
+

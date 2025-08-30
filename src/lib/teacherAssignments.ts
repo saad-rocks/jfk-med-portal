@@ -42,14 +42,52 @@ async function isCurrentUserTeacher(): Promise<boolean> {
     console.log('❌ No current user found');
     return false;
   }
-  
+
   try {
     console.log('🔍 Checking if user is teacher:', user.email);
+    console.log('🔍 User UID:', user.uid);
+
     const allUsers = await getAllUsers();
-    const currentUser = allUsers.find(u => u.email?.toLowerCase() === user.email?.toLowerCase());
-    console.log('👤 Current user found:', currentUser ? { email: currentUser.email, role: currentUser.role } : 'Not found');
+    console.log('📊 Total users in database:', allUsers.length);
+    console.log('👥 All users:', allUsers.map(u => ({
+      id: u.id,
+      uid: u.uid,
+      email: u.email,
+      role: u.role,
+      status: u.status
+    })));
+
+    // Try to find by email first
+    const currentUserByEmail = allUsers.find(u => u.email?.toLowerCase() === user.email?.toLowerCase());
+    console.log('📧 User found by email:', currentUserByEmail ? {
+      id: currentUserByEmail.id,
+      uid: currentUserByEmail.uid,
+      email: currentUserByEmail.email,
+      role: currentUserByEmail.role
+    } : 'Not found');
+
+    // Try to find by UID
+    const currentUserByUid = allUsers.find(u => u.uid === user.uid);
+    console.log('🆔 User found by UID:', currentUserByUid ? {
+      id: currentUserByUid.id,
+      uid: currentUserByUid.uid,
+      email: currentUserByUid.email,
+      role: currentUserByUid.role
+    } : 'Not found');
+
+    // Use UID match if email match fails
+    const currentUser = currentUserByEmail || currentUserByUid;
+
+    console.log('🎯 Final user found:', currentUser ? {
+      id: currentUser.id,
+      uid: currentUser.uid,
+      email: currentUser.email,
+      role: currentUser.role
+    } : 'Not found');
+
     const isTeacher = currentUser?.role === 'teacher';
     console.log('✅ Is teacher?', isTeacher);
+
     return isTeacher;
   } catch (error) {
     console.error('❌ Error checking if user is teacher:', error);
@@ -269,11 +307,62 @@ export async function debugTeacherAssignments(): Promise<Array<TeacherAssignment
     allAssignments.forEach((assignment, index) => {
       console.log(`  ${index + 1}. Teacher: ${assignment.teacherEmail}, Course: ${assignment.courseCode}, Status: ${assignment.status}, TeacherID: ${assignment.teacherId}`);
     });
-    
+
     return allAssignments;
   } catch (error) {
     console.error("❌ Error debugging teacher assignments:", error);
     return [];
+  }
+}
+
+// Debug function to check user database state
+export async function debugUserDatabase(): Promise<void> {
+  try {
+    console.log("🔍 Debugging user database...");
+    const allUsers = await getAllUsers();
+    console.log("📊 Total users in database:", allUsers.length);
+
+    const teachers = allUsers.filter(u => u.role === 'teacher');
+    const students = allUsers.filter(u => u.role === 'student');
+    const admins = allUsers.filter(u => u.role === 'admin');
+
+    console.log("👨‍🏫 Teachers:", teachers.length);
+    teachers.forEach((teacher, index) => {
+      console.log(`  ${index + 1}. ID: ${teacher.id}, UID: ${teacher.uid}, Email: ${teacher.email}, Status: ${teacher.status}`);
+    });
+
+    console.log("👨‍🎓 Students:", students.length);
+    students.forEach((student, index) => {
+      console.log(`  ${index + 1}. ID: ${student.id}, UID: ${student.uid}, Email: ${student.email}, MD Year: ${student.mdYear}, Status: ${student.status}`);
+    });
+
+    console.log("👑 Admins:", admins.length);
+    admins.forEach((admin, index) => {
+      console.log(`  ${index + 1}. ID: ${admin.id}, UID: ${admin.uid}, Email: ${admin.email}, Status: ${admin.status}`);
+    });
+
+    // Check current Firebase Auth user
+    const currentUser = auth.currentUser;
+    console.log("🔐 Current Firebase Auth User:", currentUser ? {
+      uid: currentUser.uid,
+      email: currentUser.email,
+      displayName: currentUser.displayName
+    } : 'Not authenticated');
+
+    // Try to match current user with database user
+    if (currentUser) {
+      const dbUser = allUsers.find(u => u.uid === currentUser.uid || u.email?.toLowerCase() === currentUser.email?.toLowerCase());
+      console.log("🔗 Database match for current user:", dbUser ? {
+        id: dbUser.id,
+        uid: dbUser.uid,
+        email: dbUser.email,
+        role: dbUser.role,
+        status: dbUser.status
+      } : 'No match found');
+    }
+
+  } catch (error) {
+    console.error("❌ Error debugging user database:", error);
   }
 }
 

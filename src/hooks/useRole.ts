@@ -9,6 +9,7 @@ export interface UserProfile {
   role: Role | undefined;
   mdYear: MDYear | undefined;
   loading: boolean;
+  refreshProfile: () => void;
 }
 
 export function useRole(): UserProfile {
@@ -16,58 +17,35 @@ export function useRole(): UserProfile {
   const [role, setRole] = useState<Role | undefined>(undefined);
   const [mdYear, setMdYear] = useState<MDYear | undefined>(undefined);
   const [loading, setLoading] = useState(true);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u);
       if (u) {
         try {
-          // First, try to get user profile from Firestore
+          // Use Firestore as single source of truth for roles
           const userProfile = await getUserByUid(u.uid);
-          
+
           if (userProfile) {
-            // Use real data from Firestore
+            // Use data from Firestore user profile
             setRole(userProfile.role);
             if (userProfile.role === 'student' && userProfile.mdYear) {
               setMdYear(userProfile.mdYear);
-              console.log("🎓 Real MD Year from database:", userProfile.mdYear, "for user:", u.email);
             } else {
               setMdYear(undefined);
             }
-            console.log("👤 User profile loaded from database:", userProfile.role, "for user:", u.email);
+            console.log("👤 User profile loaded:", userProfile.role, "for user:", u.email);
           } else {
-            // Fallback to Firebase Auth claims if no Firestore profile
-            await u.getIdToken(true);
-            const tokenResult = await u.getIdTokenResult();
-            const claims = tokenResult.claims as Record<string, unknown>;
-
-            if (
-              u.email === "admin@jfkmedical.edu" ||
-              u.email === "admin@jfk.edu" ||
-              u.email === "admin@test.com" ||
-              u.email?.includes("admin")
-            ) {
-              setRole("admin");
-              console.log("👑 Admin role set for:", u.email);
-            } else if (claims?.role && typeof claims.role === 'string') {
-              setRole(claims.role as Role);
-            } else {
-              setRole("student");
-              console.log("👨‍🎓 Student role set for:", u.email);
-            }
-
-            if (claims?.mdYear && typeof claims.mdYear === 'string') {
-              setMdYear(claims.mdYear as MDYear);
-            } else {
-              setMdYear("MD-1");
-              console.log("🎓 MD Year set to:", "MD-1", "for user:", u.email);
-            }
+            // No profile found - user needs to be created or is incomplete
+            console.warn("⚠️ No user profile found for authenticated user:", u.email);
+            setRole(undefined);
+            setMdYear(undefined);
           }
         } catch (error) {
-          console.error("Error loading user profile:", error);
-          // Set defaults on error
-          setRole("student");
-          setMdYear("MD-1");
+          console.error("❌ Error loading user profile:", error);
+          setRole(undefined);
+          setMdYear(undefined);
         }
       } else {
         setRole(undefined);
@@ -76,7 +54,12 @@ export function useRole(): UserProfile {
       setLoading(false);
     });
     return () => unsub();
-  }, []);
+  }, [refreshTrigger]);
 
-  return { user, role, mdYear, loading };
+  // Function to force refresh the user profile
+  const refreshProfile = () => {
+    setRefreshTrigger(prev => prev + 1);
+  };
+
+  return { user, role, mdYear, loading, refreshProfile };
 }

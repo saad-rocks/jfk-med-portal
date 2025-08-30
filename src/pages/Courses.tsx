@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { createCourse, listCourses, updateCourse, deleteCourse } from "../lib/courses";
 import type { CourseInput } from "../types";
 import { createEnrollment, listEnrollmentsForStudent, deleteEnrollment, listEnrollments, type EnrollmentInput, type Enrollment } from "../lib/enrollments";
@@ -9,7 +10,7 @@ import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Badge } from "../components/ui/badge";
-import { X, Plus, BookOpen, Users, User as UserIcon, FileText, Edit2, Trash2, CheckCircle, UserPlus, UserMinus, UserCheck, Search } from "lucide-react";
+import { X, Plus, BookOpen, Users, User as UserIcon, FileText, Edit2, Trash2, CheckCircle, UserPlus, UserMinus, UserCheck, Search, ExternalLink } from "lucide-react";
 import { useRole } from "../hooks/useRole";
 import { getAllUsers, type UserProfile } from "../lib/users";
 import { 
@@ -36,11 +37,13 @@ const SEMESTERS = Array.from({ length: 11 }, (_, i) => `MD-${i + 1}`);
 export default function Courses() {
   const { push } = useToast();
   const { user, role, mdYear } = useRole();
+  const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
   const [courses, setCourses] = useState<Array<Course & { id: string }>>([]);
   const [enrollments, setEnrollments] = useState<Array<Enrollment & { id: string }>>([]);
   const [query, setQuery] = useState("");
   const [activeTab, setActiveTab] = useState<'enrolled' | 'available'>('enrolled');
+
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -97,39 +100,56 @@ export default function Courses() {
       try {
         setInitialLoading(true);
         setError(null);
-        
+
+        // Debug information
+        console.log('🔍 Loading courses - Debug Info:', {
+          userEmail: user?.email,
+          userRole: role,
+          userMdYear: mdYear,
+          userUid: user?.uid
+        });
+
+
         // Load courses first
         const items = await listCourses();
+        console.log('📚 Loaded courses:', items.length);
         setCourses(items);
-        
+
         // Load teachers for instructor dropdown
         setTeachersLoading(true);
         const allUsers = await getAllUsers();
+        console.log('👥 All users in system:', allUsers.length);
         const teacherUsers = allUsers.filter(user => user.role === 'teacher' && user.status === 'active');
         setTeachers(teacherUsers);
         setTeachersLoading(false);
-        
+
         // Load enrollments for students - this is critical for the loading state
         if (role === 'student' && user?.email) {
+          console.log('🎓 Looking for student profile for:', user.email);
           // Get the user's Firestore document ID first
           const currentUser = allUsers.find(u => u.email?.toLowerCase() === user.email?.toLowerCase());
-          
+          console.log('👤 Found student profile:', currentUser);
+
           if (currentUser?.id) {
+            console.log('📋 Loading enrollments for student ID:', currentUser.id);
             const studentEnrollments = await listEnrollmentsForStudent(currentUser.id);
+            console.log('📚 Student enrollments loaded:', studentEnrollments.length);
             setEnrollments(studentEnrollments);
           } else {
-            // If no user found, set empty enrollments to prevent loading forever
+            console.log('⚠️ No student profile found for email:', user.email);
             setEnrollments([]);
           }
         } else if (role === 'student') {
-          // If not a student or no email, set empty enrollments
+          console.log('⚠️ Student role but no email available');
           setEnrollments([]);
+        } else {
+          console.log('ℹ️ Not a student role, skipping enrollment loading');
         }
 
         // Load teacher assignments for teachers
         if (role === 'teacher' && user?.email) {
           const currentUser = allUsers.find(u => u.email?.toLowerCase() === user.email?.toLowerCase());
-          
+
           if (currentUser?.id) {
             setTeacherId(currentUser.id);
             const teacherAssignments = await getTeacherAssignments(currentUser.id);
@@ -140,15 +160,16 @@ export default function Courses() {
         } else if (role === 'teacher') {
           setTeacherCourses([]);
         }
-        
+
         // Only set loading to false after ALL data is loaded
         // Add a small delay to ensure state updates are processed
         setTimeout(() => {
           setInitialLoading(false);
         }, 100);
-        
+
       } catch (e: unknown) {
         const error = e as Error;
+        console.error('❌ Error loading courses:', error);
         setError(error?.message ?? "Failed to load courses");
         setTeachersLoading(false);
         // Even on error, set loading to false to prevent infinite loading
@@ -360,6 +381,15 @@ export default function Courses() {
   }, [availableStudents, studentSearchQuery]);
 
     // Course detail modal functions
+  function handleViewCourseDetails(course: Course) {
+    if (!course.id) {
+      console.log('❌ Course has no ID:', course);
+      return;
+    }
+    console.log('🚀 Navigating to course details:', course.id, course.code, course.title);
+    navigate(`/courses/${course.id}`);
+  }
+
   async function handleOpenCourseDetail(course: Course) {
     if (!course.id) return;
     
@@ -605,27 +635,63 @@ export default function Courses() {
   // Course selection functions for teachers
   async function handleOpenSelectCourseModal() {
     console.log('🔍 Opening course selection modal with:', { role, userEmail: user?.email, teacherId });
-    
-    // Always try to get teacher ID if not set
+
+    // Check if teacher ID is set
     if (role === 'teacher' && user?.email) {
       try {
-        console.log('📋 Fetching all users to find teacher...');
-        const allUsers = await getAllUsers();
-        console.log('👥 All users:', allUsers.map(u => ({ id: u.id, email: u.email, role: u.role })));
-        
-        const currentUser = allUsers.find(u => u.email?.toLowerCase() === user.email?.toLowerCase());
-        console.log('🎯 Current user found:', currentUser);
-        
-        if (currentUser?.id) {
-          console.log('✅ Setting teacher ID:', currentUser.id);
-          setTeacherId(currentUser.id);
-          const teacherAssignments = await getTeacherAssignments(currentUser.id);
-          setTeacherCourses(teacherAssignments);
-          console.log('📚 Teacher assignments loaded:', teacherAssignments);
-        } else {
-          console.log('❌ Teacher profile not found for email:', user.email);
-          push({ variant: 'error', title: 'Error', description: `Teacher profile not found for email: ${user.email}` });
-          return;
+        // If teacherId is not set, try to find it
+        if (!teacherId) {
+          console.log('📋 Fetching all users to find teacher...');
+          const allUsers = await getAllUsers();
+          const currentUser = allUsers.find(u => u.email?.toLowerCase() === user.email?.toLowerCase());
+
+          if (currentUser?.id) {
+            console.log('✅ Setting teacher ID:', currentUser.id);
+            setTeacherId(currentUser.id);
+            const teacherAssignments = await getTeacherAssignments(currentUser.id);
+            setTeacherCourses(teacherAssignments);
+            console.log('📚 Teacher assignments loaded:', teacherAssignments);
+          } else {
+            console.log('⚠️ Teacher profile not found - attempting to create one');
+
+            // Try to create teacher profile automatically if it doesn't exist
+            try {
+              const { httpsCallable } = await import('firebase/functions');
+              const { functions } = await import('../firebase');
+              const createProfileFn = httpsCallable(functions, 'createUserProfile');
+
+              const result = await createProfileFn({
+                name: user.displayName || user.email?.split('@')[0] || 'Teacher',
+                role: 'teacher'
+              });
+
+              const data = result.data as { ok: boolean; profileId?: string; existing?: boolean };
+
+              if (data.ok && data.profileId) {
+                console.log('✅ Teacher profile created:', data.profileId);
+                setTeacherId(data.profileId);
+                const teacherAssignments = await getTeacherAssignments(data.profileId);
+                setTeacherCourses(teacherAssignments);
+
+                push({
+                  variant: 'success',
+                  title: 'Profile Created',
+                  description: 'Your teacher profile has been created automatically.'
+                });
+              } else {
+                throw new Error('Failed to create teacher profile');
+              }
+            } catch (createError: any) {
+              console.error('❌ Failed to create teacher profile:', createError);
+              push({
+                variant: 'error',
+                title: 'Profile Setup Required',
+                description: 'Your teacher profile could not be created. Please complete your profile setup first.'
+              });
+              navigate('/profile-setup');
+              return;
+            }
+          }
         }
       } catch (error: unknown) {
         const err = error as Error;
@@ -638,7 +704,7 @@ export default function Courses() {
       push({ variant: 'error', title: 'Error', description: 'Missing user data. Please try logging in again.' });
       return;
     }
-    
+
     console.log('🚀 Opening modal...');
     setShowSelectCourseModal(true);
     setCourseSelectionQuery("");
@@ -651,7 +717,7 @@ export default function Courses() {
 
   async function handleSelectCourseToTeach(course: Course) {
     console.log('🔍 handleSelectCourseToTeach called with:', { course, teacherId, role, userEmail: user?.email });
-    
+
     // Get the current teacher ID (either from state or by looking it up)
     let currentTeacherId = teacherId;
     if (!currentTeacherId && role === 'teacher' && user?.email) {
@@ -659,15 +725,50 @@ export default function Courses() {
       try {
         const allUsers = await getAllUsers();
         const currentUser = allUsers.find(u => u.email?.toLowerCase() === user.email?.toLowerCase());
-        
+
         if (currentUser?.id) {
           console.log('✅ Found teacher ID:', currentUser.id);
           currentTeacherId = currentUser.id;
           setTeacherId(currentUser.id);
         } else {
-          console.log('❌ Teacher profile not found for email:', user.email);
-          push({ variant: 'error', title: 'Error', description: `Teacher profile not found for email: ${user.email}` });
-          return;
+          console.log('⚠️ Teacher profile not found - attempting to create one');
+
+          // Try to create teacher profile automatically if it doesn't exist
+          try {
+            const { httpsCallable } = await import('firebase/functions');
+            const { functions } = await import('../firebase');
+            const createProfileFn = httpsCallable(functions, 'createUserProfile');
+
+            const result = await createProfileFn({
+              name: user.displayName || user.email?.split('@')[0] || 'Teacher',
+              role: 'teacher'
+            });
+
+            const data = result.data as { ok: boolean; profileId?: string; existing?: boolean };
+
+            if (data.ok && data.profileId) {
+              console.log('✅ Teacher profile created:', data.profileId);
+              currentTeacherId = data.profileId;
+              setTeacherId(data.profileId);
+
+              push({
+                variant: 'success',
+                title: 'Profile Created',
+                description: 'Your teacher profile has been created automatically.'
+              });
+            } else {
+              throw new Error('Failed to create teacher profile');
+            }
+          } catch (createError: any) {
+            console.error('❌ Failed to create teacher profile:', createError);
+            push({
+              variant: 'error',
+              title: 'Profile Setup Required',
+              description: 'Your teacher profile could not be created. Please complete your profile setup first.'
+            });
+            navigate('/profile-setup');
+            return;
+          }
         }
       } catch (error: unknown) {
         const err = error as Error;
@@ -790,7 +891,7 @@ export default function Courses() {
                }`}
              >
                <CheckCircle size={16} className="inline mr-2" />
-               My Enrolled Courses
+               My Enrolled Courses ({getEnrolledCourses().length})
              </button>
              <button
                onClick={() => setActiveTab('available')}
@@ -801,7 +902,7 @@ export default function Courses() {
                }`}
              >
                <BookOpen size={16} className="inline mr-2" />
-               Available Courses ({mdYear || 'All'})
+               Available Courses ({getCoursesForCurrentMD().filter(course => !isEnrolledInCourse(course.id)).length})
              </button>
            </div>
          </div>
@@ -829,6 +930,8 @@ export default function Courses() {
           </div>
         </div>
       )}
+
+
 
       {/* Course Creation Modal */}
       {showCreateModal && (
@@ -1546,7 +1649,7 @@ export default function Courses() {
          return (
                        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {filteredCourses.map((c) => (
-             <Card key={c.id} className="hover:shadow-glow transition-all duration-300 interactive cursor-pointer" onClick={() => handleOpenCourseDetail(c)}>
+             <Card key={c.id} className="hover:shadow-glow transition-all duration-300 interactive">
               <CardHeader className="pb-3">
                                  <div className="flex items-start justify-between">
                    <div className="flex-1">
@@ -1569,8 +1672,35 @@ export default function Courses() {
                    </div>
                    
                  </div>
+                                   {/* Navigation and Quick Actions */}
+                                   <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
+                                     {/* View Details Button */}
+                                     <Button
+                                       variant="outline"
+                                       size="sm"
+                                       onClick={() => handleViewCourseDetails(c)}
+                                       className="h-9 px-3 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300"
+                                       title="View course details"
+                                     >
+                                       <ExternalLink size={16} className="mr-1" />
+                                       View Details
+                                     </Button>
+                                     
+                                     {/* Quick Actions Button */}
+                                     <Button
+                                       variant="outline"
+                                       size="sm"
+                                       onClick={() => handleOpenCourseDetail(c)}
+                                       className="h-9 px-3 hover:bg-green-50 hover:text-green-600 hover:border-green-300"
+                                       title="Quick actions"
+                                     >
+                                       <BookOpen size={16} className="mr-1" />
+                                       Quick Actions
+                                     </Button>
+                                   </div>
+                                   
                                    {/* Action buttons row */}
-                  <div className="flex items-center justify-end gap-2 mt-3 pt-3 border-t border-slate-100">
+                                   <div className="flex items-center justify-end gap-2 mt-3 pt-3 border-t border-slate-100">
                                          {/* Admin and Teacher buttons */}
                      {(role === 'admin' || (role === 'teacher' && c.ownerId === user?.uid)) && (
                        <>

@@ -27,7 +27,7 @@ service cloud.firestore {
         (request.auth.token.email is string && request.auth.token.email.matches('.*student.*'))
       );
     }
-    // Default deny
+    // Default deny - but allow seeding operations for development
     match /{document=**} {
       allow read, write: if false;
     }
@@ -85,14 +85,14 @@ service cloud.firestore {
       // List access - only admins can list all users
       allow list: if isSignedIn(); // Temporarily allow all for demo
       
-      // Create access - only admins can create users (for user management)
-      allow create: if isSignedIn(); // Temporarily allow all for demo
+      // Create access - any authenticated user can create (for seeding and demo)
+      allow create: if isSignedIn();
       
       // Update access - users can update their own profile, admins can update any
       allow update: if isSignedIn() && (request.auth.uid == resource.data.uid || isAdmin());
       
-      // Delete access - only admins can delete users
-      allow delete: if isSignedIn(); // Temporarily allow all for demo
+      // Delete access - any authenticated user can delete (for seeding cleanup)
+      allow delete: if isSignedIn();
     }
 
     // Sessions collection rules
@@ -113,6 +113,21 @@ service cloud.firestore {
       // Write access - any authenticated user can manage (temporarily permissive)
       allow create, update, delete: if isSignedIn();
     }
+
+    // Class Sessions collection rules (for seeding)
+    match /classSessions/{sessionId} {
+      allow read, write: if isSignedIn();
+    }
+
+         // Announcements collection rules (for seeding)
+     match /announcements/{announcementId} {
+       allow read, write: if isSignedIn();
+     }
+     
+     // Clinical Assessments collection rules
+     match /clinicalAssessments/{assessmentId} {
+       allow read, write: if isSignedIn();
+     }
   }
 }
 

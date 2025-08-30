@@ -17,6 +17,7 @@
     "test:ui": "vitest --ui"
   },
   "dependencies": {
+    "@tanstack/react-virtual": "^3.13.12",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "firebase": "^12.1.0",

@@ -5,7 +5,9 @@ import { useEffect, useState, Suspense, lazy } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import type { User } from "firebase/auth";
 import { auth } from "./firebase";
+import { useRole } from "./hooks/useRole";
 import AppShell from "./layouts/AppShell";
+import "./lib/runSeed"; // Make seeding functions available globally
 
 // Global Error Boundary
 interface ErrorBoundaryState {
@@ -114,6 +116,7 @@ function PageLoader() {
 
 // Lazy load pages for better performance
 const Login = lazy(() => import("./pages/Login"));
+const ProfileSetup = lazy(() => import("./pages/ProfileSetup"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Courses = lazy(() => import("./pages/Courses"));
 const CourseDetail = lazy(() => import("./pages/CourseDetail"));
@@ -128,16 +131,39 @@ const Gradebook = lazy(() => import("./pages/Gradebook"));
 const Announcements = lazy(() => import("./pages/Announcements"));
 const Semesters = lazy(() => import("./pages/Semesters"));
 const Settings = lazy(() => import("./pages/Settings"));
-const OSCE = lazy(() => import("./pages/OSCE"));
+
 const ClinicalRotations = lazy(() => import("./pages/ClinicalRotations"));
+const ClinicalAssessments = lazy(() => import("./pages/ClinicalAssessments"));
 const Immunizations = lazy(() => import("./pages/Immunizations"));
 const Sessions = lazy(() => import("./pages/Sessions"));
+const DatabaseAdmin = lazy(() => import("./pages/DatabaseAdmin"));
 
 function AuthGate({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null | "loading">("loading");
-  useEffect(() => onAuthStateChanged(auth, u => setUser(u ?? null)), []);
-  if (user === "loading") return <PageLoader />;
-  return user ? children : <Navigate to="/login" replace />;
+  const { user, role, loading } = useRole();
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-50 via-white to-teal-50">
+        <div className="flex items-center gap-3">
+          <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+          <span className="text-gray-600 font-medium">Authenticating...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // If user is authenticated but no profile exists, redirect to profile setup
+  if (user && !role) {
+    return <Navigate to="/profile-setup" replace />;
+  }
+
+  // If user is authenticated and has a role, show protected content
+  if (user && role) {
+    return <>{children}</>;
+  }
+
+  // If not authenticated, redirect to login
+  return <Navigate to="/login" replace />;
 }
 
 function AdminOnly() {
@@ -201,7 +227,7 @@ function App() {
                 <Attendance />
               </Suspense>
             } />
-            <Route path="gradebook" element={
+            <Route path="courses/:courseId/gradebook" element={
               <Suspense fallback={<PageLoader />}>
                 <Gradebook />
               </Suspense>
@@ -222,14 +248,20 @@ function App() {
               </Suspense>
             } />
             <Route path="admin" element={<AdminOnly />} />
-            <Route path="osce" element={
+            <Route path="database-admin" element={
               <Suspense fallback={<PageLoader />}>
-                <OSCE />
+                <DatabaseAdmin />
               </Suspense>
             } />
+
             <Route path="clinical" element={
               <Suspense fallback={<PageLoader />}>
                 <ClinicalRotations />
+              </Suspense>
+            } />
+            <Route path="courses/:courseId/clinical-assessments" element={
+              <Suspense fallback={<PageLoader />}>
+                <ClinicalAssessments />
               </Suspense>
             } />
             <Route path="immunizations" element={
@@ -243,7 +275,12 @@ function App() {
               </Suspense>
             } />
           </Route>
-          <Route path="*" element={<Navigate to="/" replace />} />
+                      <Route path="profile-setup" element={
+              <Suspense fallback={<PageLoader />}>
+                <ProfileSetup />
+              </Suspense>
+            } />
+            <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>
     </BrowserRouter>
