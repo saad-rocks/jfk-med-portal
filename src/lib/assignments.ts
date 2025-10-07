@@ -1,6 +1,21 @@
 import { addDoc, collection, doc, getDoc, getDocs, query, where, updateDoc } from "firebase/firestore";
 import { auth, db } from "../firebase";
 import type { Assignment, Course } from "../types";
+import { getAllUsers } from "./users";
+
+// Resolve user identity from any key (Firestore profile id, Auth uid, or email)
+async function resolveUserIdentity(userKey: string): Promise<{ profileId?: string; uid?: string; email?: string } | null> {
+  try {
+    const users = await getAllUsers();
+    const keyLc = userKey?.toLowerCase?.() ?? userKey;
+    const match = users.find(u => u.id === userKey || u.uid === userKey || (u.email && u.email.toLowerCase() === keyLc));
+    if (!match) return null;
+    return { profileId: match.id, uid: match.uid, email: match.email };
+  } catch (e) {
+    console.error('resolveUserIdentity failed:', e);
+    return null;
+  }
+}
 
 // Compute total weight used by all assignments in a course
 export async function getCourseWeightUsage(courseId: string): Promise<{ total: number; remaining: number }> {
@@ -91,9 +106,12 @@ export async function updateAssignment(assignmentId: string, updates: Partial<As
 
 export async function getAssignmentsDueForUser(userId: string): Promise<Array<Assignment & { id: string }>> {
   try {
+    // Resolve to Firestore profile id for enrollment queries
+    const identity = await resolveUserIdentity(userId);
+    const profileId = identity?.profileId ?? userId;
     // First get the user's enrollments
     const { listEnrollmentsForStudent } = await import('./enrollments');
-    const enrollments = await listEnrollmentsForStudent(userId);
+    const enrollments = await listEnrollmentsForStudent(profileId);
     
     if (enrollments.length === 0) {
       return [];
@@ -114,9 +132,7 @@ export async function getAssignmentsDueForUser(userId: string): Promise<Array<As
 
     // Filter assignments that are due in the future (not overdue)
     const now = Date.now();
-    const dueAssignments = allAssignments.filter(assignment => 
-      assignment.dueAt > now
-    );
+    const dueAssignments = allAssignments.filter(assignment => assignment.dueAt > now);
 
     // Sort by due date (earliest first)
     dueAssignments.sort((a, b) => a.dueAt - b.dueAt);
@@ -130,9 +146,12 @@ export async function getAssignmentsDueForUser(userId: string): Promise<Array<As
 
 export async function getOverdueAssignmentsForUser(userId: string): Promise<Array<Assignment & { id: string }>> {
   try {
+    // Resolve to Firestore profile id for enrollment queries
+    const identity = await resolveUserIdentity(userId);
+    const profileId = identity?.profileId ?? userId;
     // First get the user's enrollments
     const { listEnrollmentsForStudent } = await import('./enrollments');
-    const enrollments = await listEnrollmentsForStudent(userId);
+    const enrollments = await listEnrollmentsForStudent(profileId);
     
     if (enrollments.length === 0) {
       return [];
@@ -153,9 +172,7 @@ export async function getOverdueAssignmentsForUser(userId: string): Promise<Arra
 
     // Filter assignments that are overdue
     const now = Date.now();
-    const overdueAssignments = allAssignments.filter(assignment => 
-      assignment.dueAt < now
-    );
+    const overdueAssignments = allAssignments.filter(assignment => assignment.dueAt < now);
 
     // Sort by due date (most overdue first)
     overdueAssignments.sort((a, b) => b.dueAt - a.dueAt);
@@ -169,9 +186,13 @@ export async function getOverdueAssignmentsForUser(userId: string): Promise<Arra
 
 export async function calculateOverallGradeForUser(userId: string): Promise<number> {
   try {
+    // Resolve identity: use profile id for enrollments, uid for submissions
+    const identity = await resolveUserIdentity(userId);
+    const profileId = identity?.profileId ?? userId;
+    const uid = identity?.uid ?? userId;
     // First get the user's enrollments
     const { listEnrollmentsForStudent } = await import('./enrollments');
-    const enrollments = await listEnrollmentsForStudent(userId);
+    const enrollments = await listEnrollmentsForStudent(profileId);
     
     if (enrollments.length === 0) {
       return 0;
@@ -202,7 +223,8 @@ export async function calculateOverallGradeForUser(userId: string): Promise<numb
     for (const assignment of allAssignments) {
       try {
         const submissions = await listSubmissions(assignment.id!);
-        const studentSubmission = submissions.find(s => s.studentId === userId);
+        // Submissions historically stored Auth UID; some data may use profile id. Match either.
+        const studentSubmission = submissions.find(s => s.studentId === uid || s.studentId === profileId);
         
         if (studentSubmission && studentSubmission.grade.points !== null && studentSubmission.grade.points !== undefined) {
           const gradePercentage = (studentSubmission.grade.points / assignment.maxPoints) * 100;
@@ -227,9 +249,12 @@ export async function calculateOverallGradeForUser(userId: string): Promise<numb
 
 export async function calculateAttendanceForUser(userId: string): Promise<number> {
   try {
+    // Resolve to profile id for enrollments and attendance records
+    const identity = await resolveUserIdentity(userId);
+    const profileId = identity?.profileId ?? userId;
     // First get the user's enrollments
     const { listEnrollmentsForStudent } = await import('./enrollments');
-    const enrollments = await listEnrollmentsForStudent(userId);
+    const enrollments = await listEnrollmentsForStudent(profileId);
     
     if (enrollments.length === 0) {
       return 0;
@@ -271,7 +296,7 @@ export async function calculateAttendanceForUser(userId: string): Promise<number
         const attendanceQuery = query(
           collection(db, "attendance"),
           where("sessionId", "==", session.id),
-          where("studentId", "==", userId)
+          where("studentId", "==", profileId)
         );
         const attendanceSnapshot = await getDocs(attendanceQuery);
         

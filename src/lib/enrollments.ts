@@ -1,5 +1,6 @@
 import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, query, updateDoc, where, type Query, type CollectionReference } from "firebase/firestore";
 import { auth, db } from "../firebase";
+import { getAllUsers } from "./users";
 
 export type EnrollmentStatus = "enrolled" | "dropped" | "completed";
 
@@ -192,11 +193,29 @@ export async function listEnrollmentsForStudent(studentId: string): Promise<Arra
       return cached.data;
     }
 
+    // Initial query by provided key
     const q = query(collection(db, "enrollments"), where("studentId", "==", studentId));
-    const snap = await getDocs(q);
-    const out: Array<Enrollment & { id: string }> = [];
+    let snap = await getDocs(q);
+    let out: Array<Enrollment & { id: string }> = [];
 
     snap.forEach(d => out.push({ id: d.id, ...(d.data() as Enrollment) }));
+
+    // Fallback: if nothing found, try resolving a Firestore profile id from uid/email
+    if (out.length === 0) {
+      try {
+        const users = await getAllUsers();
+        const keyLc = studentId?.toLowerCase?.() ?? studentId;
+        const match = users.find(u => u.uid === studentId || u.id === studentId || (u.email && u.email.toLowerCase() === keyLc));
+        if (match?.id && match.id !== studentId) {
+          const q2 = query(collection(db, "enrollments"), where("studentId", "==", match.id));
+          snap = await getDocs(q2);
+          out = [];
+          snap.forEach(d => out.push({ id: d.id, ...(d.data() as Enrollment) }));
+        }
+      } catch (e) {
+        console.warn('Fallback resolve for listEnrollmentsForStudent failed:', e);
+      }
+    }
 
     // Cache the results
     enrollmentCache.set(cacheKey, { data: out, timestamp: Date.now() });
@@ -371,5 +390,4 @@ export async function createSampleEnrollments(): Promise<void> {
     throw error;
   }
 }
-
 
