@@ -1,0 +1,1 @@
+import{j as o}from"./index-SvUTDYpM.js";import{a as r}from"./utils-CCUt_dAN.js";function s(s){const{className:e,...u}=s;return o.jsx("input",{className:r("w-full border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500/60 focus:border-blue-500",e),...u})}export{s as I};
