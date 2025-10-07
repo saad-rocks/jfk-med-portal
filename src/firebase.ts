@@ -25,15 +25,40 @@ export const db = getFirestore(app);
 export const storage = getStorage(app);
 export const functions = getFunctions(app);
 
-// Enable offline persistence for production
-if (typeof window !== 'undefined') {
-  import('firebase/firestore').then(({ enableIndexedDbPersistence }) => {
-    enableIndexedDbPersistence(db).catch((err) => {
-      if (err.code === 'failed-precondition') {
-        console.warn('Multiple tabs open, persistence can only be enabled in one tab at a time.');
-      } else if (err.code === 'unimplemented') {
-        console.warn('The current browser does not support persistence.');
-      }
-    });
+// Use Firebase emulators in development (only if explicitly enabled)
+const useEmulators = import.meta.env.VITE_USE_FIREBASE_EMULATORS === 'true';
+
+if (useEmulators && import.meta.env.DEV) {
+  console.log('🔥 Using Firebase emulators in development mode');
+
+  // Connect to emulators
+  import('firebase/auth').then(({ connectAuthEmulator }) => {
+    connectAuthEmulator(auth, "http://localhost:9099");
   });
+
+  import('firebase/firestore').then(({ connectFirestoreEmulator }) => {
+    connectFirestoreEmulator(db, 'localhost', 8080);
+  });
+
+  import('firebase/storage').then(({ connectStorageEmulator }) => {
+    connectStorageEmulator(storage, 'localhost', 9199);
+  });
+
+  import('firebase/functions').then(({ connectFunctionsEmulator }) => {
+    connectFunctionsEmulator(functions, 'localhost', 5001);
+  });
+} else {
+  // Using production Firebase (no console log to reduce noise)
+  // Enable offline persistence for production
+  if (typeof window !== 'undefined') {
+    import('firebase/firestore').then(({ enableIndexedDbPersistence }) => {
+      enableIndexedDbPersistence(db).catch((err) => {
+        if (err.code === 'failed-precondition') {
+          console.warn('Multiple tabs open, persistence can only be enabled in one tab at a time.');
+        } else if (err.code === 'unimplemented') {
+          console.warn('The current browser does not support persistence.');
+        }
+      });
+    });
+  }
 }

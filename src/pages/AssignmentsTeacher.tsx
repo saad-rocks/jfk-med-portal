@@ -1,16 +1,18 @@
 import { useState, useEffect, useMemo } from "react";
 import { useParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "../firebase";
 import { useRole } from "../hooks/useRole";
 import { listAssignments } from "../lib/assignments";
-import CreateAssignment from "../components/CreateAssignment";
+// import CreateAssignment from "../components/CreateAssignment";
 import type { Assignment } from "../types";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Input } from "../components/ui/input";
 import { Tabs } from "../components/ui/tabs";
+// import { MedicalModal } from "../components/ui/medical-modal";
 import { 
   Plus, 
   FileText, 
@@ -46,11 +48,12 @@ interface AssignmentWithStats extends Assignment {
 }
 
 export default function AssignmentsTeacher() {
+  const navigate = useNavigate();
   const { courseId } = useParams<{ courseId: string }>();
   const { role } = useRole();
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showCreateModal, setShowCreateModal] = useState(false);
+  // const [showCreateModal, setShowCreateModal] = useState(false);
   
   // Filters and sorting
   const [selectedCategory, setSelectedCategory] = useState<AssignmentCategory>('all');
@@ -226,7 +229,11 @@ export default function AssignmentsTeacher() {
             </p>
             {!searchQuery && selectedStatus === 'all' && selectedCategory === 'all' && (
               <Button
-                onClick={() => setShowCreateModal(true)}
+                onClick={() => {
+                  // Scroll to top when opening modal
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                  navigate("/assignments/new");
+                }}
                 className="flex items-center gap-2"
               >
                 <Plus size={16} />
@@ -365,7 +372,11 @@ export default function AssignmentsTeacher() {
         </div>
         <Button
           className="flex items-center gap-2 bg-medical-600 hover:bg-medical-700"
-          onClick={() => setShowCreateModal(true)}
+          onClick={() => {
+            // Scroll to top when opening modal
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            navigate("/assignments/new");
+          }}
         >
           <Plus size={16} />
           Create Assignment
@@ -488,28 +499,14 @@ export default function AssignmentsTeacher() {
       ]} />
 
       {/* Create Assignment Modal */}
-      {showCreateModal && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-md flex items-center justify-center z-50 p-4">
-          <div className="relative w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-            <button
-              onClick={() => setShowCreateModal(false)}
-              className="absolute top-4 right-4 z-10 p-2 bg-white/90 backdrop-blur-sm rounded-full shadow-lg hover:bg-white transition-all duration-200"
-            >
-              <X size={20} />
-            </button>
-            <CreateAssignment
-              courseId={courseId}
-              onSuccess={() => {
-                setShowCreateModal(false);
-                fetchAssignments();
-              }}
-              onCancel={() => setShowCreateModal(false)}
-            />
-          </div>
-        </div>
-      )}
+      
     </div>
   );
 }
+
+
+
+
+
 
 

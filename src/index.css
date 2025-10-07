@@ -18,6 +18,53 @@
   --glow-color: 14, 165, 233;
 }
 
+/* Custom scrollbar styles */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(59, 130, 246, 0.3) transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+/* Line clamp utilities */
+.line-clamp-1 {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(248, 250, 252, 0.5);
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.4), rgba(20, 184, 166, 0.4));
+  border-radius: 10px;
+  transition: all 0.3s ease;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.6), rgba(20, 184, 166, 0.6));
+}
+
 html, body, #root {
   height: 100%;
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -25,8 +72,7 @@ html, body, #root {
 
 body {
   margin: 0;
-  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 50%, #e2e8f0 100%);
-  background-attachment: fixed;
+  background: #f8fafc; /* Simple solid color for better performance */
   color: var(--text-primary);
   font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
   -webkit-font-smoothing: antialiased;
@@ -69,25 +115,25 @@ body {
 @keyframes pageEnter {
   0% {
     opacity: 0;
-    transform: translateY(20px) scale(0.98);
+    transform: translateY(20px);
   }
   100% {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
   }
 }
 
 /* Glassmorphism effects */
 .glass {
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
 }
 
 .glass-dark {
-  background: rgba(15, 23, 42, 0.85);
-  backdrop-filter: blur(12px);
+  background: rgba(15, 23, 42, 0.95);
   border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
 }
 
 /* Medical-themed gradient backgrounds */
@@ -132,43 +178,51 @@ body {
     0 0 0 1px rgba(var(--glow-color), 0.05);
 }
 
-/* Interactive elements */
+/* Interactive elements - optimized for performance */
 .interactive {
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   cursor: pointer;
+  will-change: transform; /* Optimize for animations */
+  contain: layout style paint; /* CSS containment for performance */
 }
 
 .interactive:hover {
-  transform: translateY(-2px);
-  box-shadow: 
-    0 12px 28px -3px rgba(var(--shadow-color), 0.1),
-    0 6px 8px -2px rgba(var(--shadow-color), 0.05);
+  transform: translateY(-1px); /* Keep transform-only for GPU */
+  /* Swap heavy shadows for subtle border/opacity change */
+  box-shadow: none;
+  outline: 1px solid rgba(15, 23, 42, 0.06);
+  background-color: rgba(255, 255, 255, 0.8);
 }
 
 .interactive:active {
-  transform: translateY(0);
-  transition: all 0.1s ease;
+  transform: translateY(0) scale(1);
+  transition: transform 0.1s ease;
 }
 
-/* Floating action button effect */
+/* Floating action button effect - optimized */
 .fab {
   position: relative;
   overflow: hidden;
+  will-change: transform;
 }
 
-.fab::before {
+/* Use simpler opacity transition instead of expensive pseudo-element animation */
+.fab::after {
   content: '';
   position: absolute;
   top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-  transition: left 0.5s;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.1);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
 }
 
-.fab:hover::before {
-  left: 100%;
+.fab:hover::after {
+  opacity: 1;
 }
 
 /* Pulse animation for vital signs */
@@ -179,31 +233,41 @@ body {
 @keyframes pulseVital {
   0%, 100% {
     opacity: 1;
-    transform: scale(1);
   }
   50% {
-    opacity: 0.8;
-    transform: scale(1.05);
+    opacity: 0.7;
   }
 }
 
-/* Loading shimmer effect */
+/* Loading shimmer effect - optimized with transform instead of background-position */
 .shimmer {
-  background: linear-gradient(90deg, 
-    var(--surface-secondary) 25%, 
-    var(--surface-tertiary) 50%, 
-    var(--surface-secondary) 75%
+  background: var(--surface-secondary);
+  position: relative;
+  overflow: hidden;
+}
+
+.shimmer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.3) 50%,
+    transparent 100%
   );
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
+  animation: shimmer 1.5s ease-in-out infinite;
+  will-change: transform;
 }
 
 @keyframes shimmer {
   0% {
-    background-position: -200% 0;
+    transform: translateX(-100%);
   }
   100% {
-    background-position: 200% 0;
+    transform: translateX(300%);
   }
 }
 
@@ -230,11 +294,59 @@ body {
   }
 }
 
+/* Performance optimization utilities */
+.gpu-accelerated {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  perspective: 1000px;
+}
+
+.smooth-scroll {
+  scroll-behavior: smooth;
+}
+
+.no-scroll {
+  overflow: hidden;
+}
+
+/* Limit concurrent animations for better performance */
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+  will-change: opacity;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Shimmer animation for progress bar */
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 2s infinite;
+}
+
 /* Reduce motion for accessibility */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+
+  .interactive:hover {
+    transform: none !important;
   }
 }

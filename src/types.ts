@@ -30,6 +30,10 @@ export type Submission = {
   fileUrl: string;
   submittedAt: number;
   grade: SubmissionGrade;
+  comments?: string;
+  canResubmit?: boolean; // When true, teacher allows student to resubmit
+  resubmissionNote?: string; // Optional note from teacher explaining why resubmission is allowed
+  lastUpdatedAt?: number; // Track when submission was last updated
 };
 
 export type Role = "admin" | "teacher" | "student";
@@ -71,11 +75,14 @@ export type Course = {
   title: string;
   credits: number;
   semester: string;
-  capacity: number;
   instructor: string;
   description: string;
   ownerId: string;
   createdAt: number;
+  // Grading system (optional extensions)
+  gradingMode?: 'per-assignment' | 'category';
+  categoryWeights?: Partial<Record<AssignmentType, number>>; // weights must sum to 100
+  gradingFinalized?: boolean; // when true, scheme is finalized for the term
 };
 
 export type CourseInput = Omit<Course, 'id' | 'ownerId' | 'createdAt'>; // For creating new courses
@@ -104,6 +111,7 @@ export type Session = {
   location?: string;
   instructorId: string;
   attendees?: string[];
+  status?: 'active' | 'upcoming' | 'completed' | 'cancelled';
   createdAt: number;
 };
 
@@ -150,6 +158,48 @@ export type GradeRecord = {
   weight?: number;
   recordedAt: number;
   recordedBy: string;
+};
+
+// Time Tracking Types
+export type TimeEntry = {
+  id?: string;
+  userId: string;
+  date: string; // YYYY-MM-DD format
+  clockIn: number; // timestamp
+  clockOut?: number; // timestamp (optional for active sessions)
+  totalHours?: number; // calculated total hours for the day
+  isManual?: boolean; // true if manually entered
+  notes?: string;
+  createdAt: number;
+  updatedAt: number;
+  updatedBy?: string; // for admin edits
+};
+
+export type TimeCardSession = {
+  id?: string;
+  userId: string;
+  startTime: number;
+  endTime?: number;
+  isActive: boolean;
+  totalHours?: number;
+};
+
+export type MonthlyReport = {
+  userId: string;
+  userName: string;
+  month: string; // YYYY-MM format
+  year: number;
+  totalHours: number;
+  dailyEntries: TimeEntry[];
+  generatedAt: number;
+};
+
+export type TimeTrackingStats = {
+  todayHours: number;
+  weekHours: number;
+  monthHours: number;
+  averageDailyHours: number;
+  currentSession?: TimeCardSession;
 };
 
 

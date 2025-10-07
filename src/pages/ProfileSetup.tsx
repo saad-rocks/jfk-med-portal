@@ -4,7 +4,7 @@ import { useRole } from "../hooks/useRole";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Card, CardContent, CardHeader } from "../components/ui/card";
-import { GraduationCap, UserCheck, AlertCircle } from "lucide-react";
+import { GraduationCap, UserCheck, AlertCircle, Heart } from "lucide-react";
 
 export default function ProfileSetup() {
   const navigate = useNavigate();
@@ -147,17 +147,21 @@ export default function ProfileSetup() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-teal-50 p-4">
       <div className="w-full max-w-md space-y-8 animate-slide-up">
         {/* Header */}
-        <div className="text-center space-y-4">
-          <div className="flex items-center justify-center">
-            <div className="h-16 w-16 rounded-2xl bg-gradient-to-r from-blue-500 to-teal-500 text-white flex items-center justify-center font-bold text-2xl shadow-glow">
-              <UserCheck size={32} />
+        <div className="text-center space-y-6">
+          <div className="flex flex-col items-center space-y-4">
+            <img
+              src="/jfk-logo.png"
+              alt="JFK Medical Center Logo"
+              className="h-24 w-24 object-cover rounded-full shadow-lg hover:shadow-xl transition-all duration-300"
+            />
+
+            {/* Brand Text */}
+            <div className="space-y-2">
+              <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 via-blue-700 to-teal-600 bg-clip-text text-transparent">
+                Complete Your Profile
+              </h1>
+              <p className="text-slate-600">Tell us a bit about yourself to get started with JFK Medical Portal</p>
             </div>
-          </div>
-          <div className="space-y-2">
-            <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 via-blue-700 to-teal-600 bg-clip-text text-transparent">
-              Complete Your Profile
-            </h1>
-            <p className="text-slate-600">Tell us a bit about yourself to get started</p>
           </div>
         </div>
 
@@ -235,7 +239,7 @@ export default function ProfileSetup() {
 
               <Button
                 type="submit"
-                className="w-full bg-gradient-to-r from-blue-600 to-teal-600 hover:from-blue-700 hover:to-teal-700 text-white font-medium py-3 rounded-lg transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-xl"
+                className="w-full bg-gradient-to-r from-blue-600 to-teal-600 hover:from-blue-700 hover:to-teal-700 text-white font-medium py-3 rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl"
                 disabled={loading}
               >
                 {loading ? (

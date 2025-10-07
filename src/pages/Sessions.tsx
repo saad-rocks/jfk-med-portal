@@ -5,6 +5,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/card'
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
+import { MedicalModal } from '../components/ui/medical-modal';
 import {
   getAllSessions,
   createSession,
@@ -436,15 +437,25 @@ function SessionModal({ session, onClose, onSave }: SessionModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/30 backdrop-blur-md flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
-        <div className="p-6 border-b">
-          <h2 className="text-xl font-bold text-gray-900">
-            {session ? 'Edit' : 'Add'} Session
-          </h2>
+    <MedicalModal
+      isOpen={true}
+      onClose={onClose}
+      title={`${session ? 'Edit' : 'Add'} Session`}
+      description="Manage academic session information and settings"
+      icon={<Calendar size={24} className="text-blue-600" />}
+      size="md"
+      footer={
+        <div className="flex gap-3 w-full">
+          <Button type="button" variant="outline" onClick={onClose} className="flex-1">
+            Cancel
+          </Button>
+          <Button type="submit" form="session-form" className="flex-1">
+            {session ? 'Update' : 'Create'} Session
+          </Button>
         </div>
-
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+      }
+    >
+      <form id="session-form" onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Session Name</label>
             <select
@@ -539,16 +550,7 @@ function SessionModal({ session, onClose, onSave }: SessionModalProps) {
             </p>
           )}
 
-          <div className="flex gap-3 pt-4">
-            <Button type="button" variant="outline" onClick={onClose} className="flex-1">
-              Cancel
-            </Button>
-            <Button type="submit" className="flex-1">
-              {session ? 'Update' : 'Create'} Session
-            </Button>
-          </div>
         </form>
-      </div>
-    </div>
+    </MedicalModal>
   );
 }

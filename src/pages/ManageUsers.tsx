@@ -4,6 +4,7 @@ import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
+import { MedicalModal } from '../components/ui/medical-modal';
 import {
   getAllUsers,
   getUsersByRole, 
@@ -30,7 +31,8 @@ import {
   Mail,
   Phone,
   Calendar,
-  User
+  User,
+  UserCheck
 } from 'lucide-react';
 
 // Type alias for consistency
@@ -623,15 +625,25 @@ function UserModal({ user, role, onClose, onSave }: UserModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/30 backdrop-blur-md flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
-        <div className="p-6 border-b">
-          <h2 className="text-xl font-bold text-gray-900">
-            {user ? 'Edit' : 'Add'} {role}
-          </h2>
+    <MedicalModal
+      isOpen={true}
+      onClose={onClose}
+      title={`${user ? 'Edit' : 'Add'} ${role}`}
+      description={user ? 'Update user information and permissions' : 'Create a new user account'}
+      icon={<UserCheck size={24} className="text-blue-600" />}
+      size="md"
+      footer={
+        <div className="flex gap-4 w-full">
+          <Button type="button" variant="outline" onClick={onClose} className="flex-1 h-12 font-semibold hover:bg-slate-50 border-slate-300">
+            Cancel
+          </Button>
+          <Button type="submit" form="user-form" className="flex-1 h-12 font-semibold bg-gradient-to-r from-blue-600 to-teal-600 hover:from-blue-700 hover:to-teal-700 shadow-md hover:shadow-lg transition-all duration-200">
+            {user ? 'Update' : 'Create'} {role}
+          </Button>
         </div>
-
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+      }
+    >
+      <form id="user-form" onSubmit={handleSubmit} className="space-y-6">
           {/* Common fields */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
@@ -784,16 +796,7 @@ function UserModal({ user, role, onClose, onSave }: UserModalProps) {
             </div>
           )}
 
-          <div className="flex gap-3 pt-4">
-            <Button type="button" variant="outline" onClick={onClose} className="flex-1">
-              Cancel
-            </Button>
-            <Button type="submit" className="flex-1">
-              {user ? 'Update' : 'Create'} {role}
-            </Button>
-          </div>
         </form>
-      </div>
-    </div>
+    </MedicalModal>
   );
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
-import { createAssignment } from "../lib/assignments";
+import { createAssignment, getCourseWeightUsage } from "../lib/assignments";
 import { getTeacherAssignments, debugTeacherAssignments, checkTeacherAssignments, type TeacherAssignment } from "../lib/teacherAssignments";
 import { checkDatabase, checkUser, checkCourses, enrollUser, assignTeacher } from "../lib/databaseDebug";
 import { useRole } from "../hooks/useRole";
@@ -24,7 +24,7 @@ import {
   Search,
   Info
 } from "lucide-react";
-import { collection, query, where, getDocs } from "firebase/firestore";
+import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import type { AssignmentType } from "../types";
 
@@ -65,6 +65,7 @@ export default function CreateAssignment({
   const [attachments, setAttachments] = useState<File[]>([]);
   const [teacherCourses, setTeacherCourses] = useState<Array<TeacherAssignment & { id: string }> | FallbackCourse[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [weightUsage, setWeightUsage] = useState<{ total: number; remaining: number } | null>(null);
 
   const {
     register,
@@ -82,6 +83,28 @@ export default function CreateAssignment({
 
   const assignmentType = watch("type");
   const selectedCourseData = teacherCourses.find(c => c.courseId === selectedCourse);
+  const [gradingMode, setGradingMode] = useState<'per-assignment' | 'category'>('per-assignment');
+
+  // Load current weight usage for the selected course
+  useEffect(() => {
+    const cid = courseId || selectedCourse;
+    if (!cid) { setWeightUsage(null); return; }
+    (async () => {
+      try {
+        // Load grading mode
+        const cDoc = await getDoc(doc(db, 'courses', cid));
+        if (cDoc.exists()) {
+          const cData = cDoc.data() as any;
+          if (cData.gradingMode) setGradingMode(cData.gradingMode);
+        }
+        const usage = await getCourseWeightUsage(cid);
+        setWeightUsage(usage);
+      } catch (e) {
+        console.error('Error loading weight usage:', e);
+        setWeightUsage(null);
+      }
+    })();
+  }, [courseId, selectedCourse]);
 
   // Function to load teacher's courses
   const loadCourses = async () => {
@@ -564,14 +587,27 @@ export default function CreateAssignment({
                     min={0}
                     max={100}
                     step={0.1}
+                    disabled={gradingMode === 'category'}
                     {...register("weight", {
                       required: "Weight is required",
                       min: { value: 0, message: "Weight must be positive" },
-                      max: { value: 100, message: "Weight cannot exceed 100%" }
+                      max: { value: 100, message: "Weight cannot exceed 100%" },
+                      validate: (v) => {
+                        if (gradingMode === 'category') return true;
+                        if (!weightUsage) return true;
+                        const remaining = weightUsage.remaining;
+                        return Number(v) <= remaining + 1e-6 || `Only ${remaining.toFixed(1)}% remaining in this course`;
+                      }
                     })}
                     placeholder="10"
                                          className={`h-11 bg-white/90 ${errors.weight ? "border-critical-500 focus:border-critical-500" : ""}`}
                   />
+                  {gradingMode === 'category' && (
+                    <p className="text-xs text-slate-600">Category-based grading is enabled for this course. Assignment weights are managed by category.</p>
+                  )}
+                  {weightUsage && (
+                    <p className="text-xs text-slate-600">Used: <span className="font-medium">{weightUsage.total.toFixed(1)}%</span> • Remaining: <span className="font-medium">{weightUsage.remaining.toFixed(1)}%</span> (target total: 100%)</p>
+                  )}
                   {errors.weight && (
                     <p className="text-critical-500 text-sm">{errors.weight.message}</p>
                   )}

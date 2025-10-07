@@ -31,4 +31,36 @@ export async function getSubmissionForStudent(assignmentId: string, studentId: s
   return d.exists() ? ({ id: d.id, ...(d.data() as Submission) }) : null;
 }
 
+/**
+ * Allow or disallow a student to resubmit their assignment
+ * Only teachers/admins can call this
+ */
+export async function allowResubmission(
+  assignmentId: string,
+  studentId: string,
+  canResubmit: boolean,
+  resubmissionNote?: string
+): Promise<void> {
+  const user = auth.currentUser;
+  if (!user) throw new Error("Must be signed in");
+
+  const docId = `${assignmentId}_${studentId}`;
+  const submissionRef = doc(db, "submissions", docId);
+  const submissionDoc = await getDoc(submissionRef);
+
+  if (!submissionDoc.exists()) {
+    throw new Error("Submission not found");
+  }
+
+  await setDoc(
+    submissionRef,
+    {
+      canResubmit,
+      resubmissionNote: resubmissionNote || null,
+      lastUpdatedAt: Date.now(),
+    },
+    { merge: true }
+  );
+}
+
 

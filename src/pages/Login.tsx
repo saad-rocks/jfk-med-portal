@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { signInWithEmailAndPassword, sendPasswordResetEmail, type AuthError } from "firebase/auth";
-import { Eye, EyeOff, Lock, Mail, Heart, GraduationCap, UserPlus, X } from "lucide-react";
+import { Eye, EyeOff, Lock, Mail, Heart, GraduationCap, UserPlus, X, Bell } from "lucide-react";
 import { auth } from "../firebase";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -175,99 +175,210 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-teal-50 p-4 page-transition">
-      {/* Background decoration */}
+    <div className="h-screen bg-gradient-to-br from-slate-50 via-blue-50/20 to-teal-50/30 relative overflow-hidden">
+      {/* Full width top line */}
+      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 to-teal-500 z-10"></div>
+
+      {/* Optimized Background decoration */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-1/2 -right-1/2 w-full h-full bg-gradient-to-bl from-blue-100/20 to-transparent rounded-full blur-3xl"></div>
-        <div className="absolute -bottom-1/2 -left-1/2 w-full h-full bg-gradient-to-tr from-teal-100/20 to-transparent rounded-full blur-3xl"></div>
+        {/* Simplified gradient orbs - static for better performance */}
+        <div className="absolute -top-1/2 -right-1/4 w-80 h-80 bg-gradient-to-bl from-blue-100/20 to-transparent rounded-full blur-3xl"></div>
+        <div className="absolute -bottom-1/3 -left-1/4 w-64 h-64 bg-gradient-to-tr from-teal-100/15 to-transparent rounded-full blur-3xl"></div>
       </div>
 
-      <div className="relative w-full max-w-md space-y-8 animate-slide-up">
-        {/* Header */}
-        <div className="text-center space-y-6">
-          <div className="flex items-center justify-center gap-4">
-            <div className="relative group">
-              <div className="h-16 w-16 rounded-2xl bg-gradient-to-r from-blue-500 to-teal-500 text-white flex items-center justify-center font-bold text-2xl shadow-glow interactive">
-                J
-              </div>
-              <div className="absolute -bottom-1 -right-1 h-5 w-5 bg-green-500 rounded-full border-2 border-white flex items-center justify-center pulse-vital">
-                <Heart size={10} className="text-white" />
-              </div>
-              <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-blue-400 to-teal-400 opacity-0 group-hover:opacity-20 transition-opacity duration-300"></div>
+      <div className="relative h-full flex">
+        {/* Left Side - Notice Board (70% width) */}
+        <div className="hidden lg:flex lg:w-[70%] bg-gradient-to-br from-white/90 via-blue-50/30 to-teal-50/30 flex-col justify-center p-6 relative overflow-hidden border-r border-white/30">
+
+          {/* Header Section with Logo and Text - Top Left aligned */}
+          <div className="absolute top-6 left-6 flex items-start gap-4">
+            <div className="relative">
+              <img
+                src="/jfk-logo.png"
+                alt="JFK Medical Center Logo"
+                className="h-16 w-16 object-cover rounded-full shadow-lg ring-2 ring-white/50 flex-shrink-0"
+              />
             </div>
-            <div className="text-left">
-              <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 via-blue-700 to-teal-600 bg-clip-text text-transparent">
+            <div className="flex-1">
+              <h1 className="text-3xl font-bold bg-gradient-to-r from-slate-800 to-blue-800 bg-clip-text text-transparent leading-tight">
                 JFK Medical Portal
               </h1>
-              <div className="flex items-center gap-2 text-sm text-slate-600 mt-1">
-                <GraduationCap size={16} className="text-blue-500" />
-                <span className="font-medium">Academic Excellence in Medicine</span>
+              <div className="flex items-center gap-2 text-sm text-slate-600 mt-2 font-medium">
+                <GraduationCap size={18} className="text-blue-600" />
+                <span>Excellence in Medical Education</span>
               </div>
             </div>
           </div>
-          <div className="space-y-2">
-            <h2 className="text-xl font-semibold text-slate-800">Welcome Back</h2>
-            <p className="text-slate-600">Sign in to continue your medical education journey</p>
+
+          {/* Notice Board - Centered */}
+          <div className="flex justify-center">
+            <div className="w-full max-w-4xl h-[500px] bg-white/95 rounded-3xl p-6 shadow-xl border border-white/60 relative overflow-hidden">
+              {/* Simplified notice board background */}
+              <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-blue-500 to-teal-500"></div>
+
+              <div className="relative">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="p-2 bg-blue-100 rounded-xl shadow-sm">
+                    <Bell size={20} className="text-blue-600" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-800">Notice Board</h2>
+                    <p className="text-sm text-slate-600">Latest updates and announcements</p>
+                  </div>
+                </div>
+              </div>
+
+            {/* Announcements */}
+            <div className="relative">
+              <div className="space-y-3 h-80 overflow-y-auto pr-2 custom-scrollbar">
+                {/* Announcement 1 */}
+                <div className="bg-gradient-to-r from-blue-50 to-blue-100/70 rounded-lg p-3 border border-blue-200/50 shadow-sm">
+                  <div className="flex items-start justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                      <span className="text-xs font-bold text-blue-800 bg-blue-100/70 px-2 py-1 rounded-full">System Update</span>
+                    </div>
+                    <span className="text-xs text-slate-500 font-medium bg-white/70 px-2 py-1 rounded-md">Today</span>
+                  </div>
+                  <h3 className="font-bold text-slate-800 mb-1 text-sm">Portal Performance Enhancement</h3>
+                  <p className="text-xs text-slate-600">New optimizations have been deployed for faster loading and improved user experience.</p>
+                </div>
+
+                {/* Announcement 2 */}
+                <div className="bg-gradient-to-r from-emerald-50 to-emerald-100/70 rounded-lg p-3 border border-emerald-200/50 shadow-sm">
+                  <div className="flex items-start justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
+                      <span className="text-xs font-bold text-emerald-800 bg-emerald-100/70 px-2 py-1 rounded-full">Academic</span>
+                    </div>
+                    <span className="text-xs text-slate-500 font-medium bg-white/70 px-2 py-1 rounded-md">2 days ago</span>
+                  </div>
+                  <h3 className="font-bold text-slate-800 mb-1 text-sm">New Clinical Rotation Schedule</h3>
+                  <p className="text-xs text-slate-600">Updated clinical rotation schedules for Spring 2025 semester are now available in your dashboard.</p>
+                </div>
+
+                {/* Announcement 3 */}
+                <div className="bg-gradient-to-r from-amber-50 to-amber-100/70 rounded-lg p-3 border border-amber-200/50 shadow-sm">
+                  <div className="flex items-start justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-amber-500 rounded-full"></div>
+                      <span className="text-xs font-bold text-amber-800 bg-amber-100/70 px-2 py-1 rounded-full">Reminder</span>
+                    </div>
+                    <span className="text-xs text-slate-500 font-medium bg-white/70 px-2 py-1 rounded-md">3 days ago</span>
+                  </div>
+                  <h3 className="font-bold text-slate-800 mb-1 text-sm">Assignment Submission Deadline</h3>
+                  <p className="text-xs text-slate-600">Clinical Assessment submissions are due by February 15th. Submit early to avoid last-minute issues.</p>
+                </div>
+
+                {/* Announcement 4 */}
+                <div className="bg-gradient-to-r from-purple-50 to-purple-100/70 rounded-lg p-3 border border-purple-200/50 shadow-sm">
+                  <div className="flex items-start justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
+                      <span className="text-xs font-bold text-purple-800 bg-purple-100/70 px-2 py-1 rounded-full">Event</span>
+                    </div>
+                    <span className="text-xs text-slate-500 font-medium bg-white/70 px-2 py-1 rounded-md">1 week ago</span>
+                  </div>
+                  <h3 className="font-bold text-slate-800 mb-1 text-sm">Medical Excellence Symposium</h3>
+                  <p className="text-xs text-slate-600">Join us for the Annual Medical Excellence Symposium on March 10th featuring renowned healthcare professionals.</p>
+                </div>
+              </div>
+            </div>
+
+              {/* Footer */}
+              <div className="absolute bottom-6 left-6 right-6">
+                <div className="bg-slate-50/80 rounded-xl p-4 border border-slate-200/50">
+                  <div className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2 text-slate-600 font-medium">
+                      <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                      <span>Last updated: Today, 2:30 PM</span>
+                    </div>
+                    <div className="bg-gradient-to-r from-blue-500/10 to-teal-500/10 px-3 py-1.5 rounded-full border border-blue-200/50">
+                      <span className="text-slate-700 font-semibold text-xs">4 new announcements</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Login Form */}
-        <Card className="border-0 shadow-glow glass backdrop-blur-md">
-          <CardHeader className="pb-6 text-center">
-            <div className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-50 to-teal-50 rounded-full">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              <span className="text-sm font-medium text-slate-700">Secure Sign In</span>
+        {/* Right Side - Login Form (30% width) */}
+        <div className="flex-1 lg:w-[30%] flex flex-col justify-center items-center p-4 lg:p-6 relative">
+          {/* Mobile Logo (visible on small screens) */}
+          <div className="lg:hidden text-center mb-6">
+            <div className="relative inline-block">
+              <img
+                src="/jfk-logo.png"
+                alt="JFK Medical Center Logo"
+                className="h-20 w-20 object-cover rounded-full shadow-lg mb-3 ring-2 ring-white/70"
+              />
             </div>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={onLogin} className="space-y-4">
+            <h1 className="text-2xl font-bold bg-gradient-to-r from-slate-800 to-blue-800 bg-clip-text text-transparent mb-1 leading-tight">
+              JFK Medical Portal
+            </h1>
+            <p className="text-slate-600 text-sm">Secure Access Portal</p>
+          </div>
+
+          {/* Simplified Login Form Card */}
+          <Card className="w-full max-w-sm h-[500px] bg-white/95 border-0 shadow-xl relative overflow-hidden">
+            {/* Simplified card background */}
+            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-teal-500"></div>
+            <CardHeader className="pb-4 pt-6 text-center">
               <div className="space-y-2">
+                <h2 className="text-xl font-bold text-slate-800">Welcome Back</h2>
+                <p className="text-sm text-slate-600">Sign in to access your medical portal</p>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4 px-6 pb-6">
+            <form onSubmit={onLogin} className="space-y-4">
+              <div className="space-y-1">
                 <label htmlFor="email" className="text-sm font-medium text-slate-700">
                   Email Address
                 </label>
                 <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={20} />
+                  <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={16} />
                   <Input
                     id="email"
                     type="email"
-                    placeholder="Enter your email"
+                    placeholder="your.email@jfk.edu"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="pl-10"
+                    className="pl-9 pr-4 py-2.5 text-slate-700 border border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 bg-white rounded-lg"
                     required
                   />
                 </div>
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-1">
                 <label htmlFor="password" className="text-sm font-medium text-slate-700">
                   Password
                 </label>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={20} />
+                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={16} />
                   <Input
                     id="password"
                     type={showPassword ? "text" : "password"}
                     placeholder="Enter your password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="pl-10 pr-10"
+                    className="pl-9 pr-10 py-2.5 text-slate-700 border border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 bg-white rounded-lg"
                     required
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-blue-600 transition-colors"
                   >
-                    {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
                 </div>
               </div>
 
               {message && (
                 <div className={`p-3 rounded-lg text-sm ${
-                  message.type === 'error' 
-                    ? 'bg-red-50 text-red-700 border border-red-200' 
+                  message.type === 'error'
+                    ? 'bg-red-50 text-red-700 border border-red-200'
                     : 'bg-green-50 text-green-700 border border-green-200'
                 }`}>
                   {message.text}
@@ -276,57 +387,44 @@ export default function Login() {
 
               <Button
                 type="submit"
-                className="w-full bg-gradient-to-r from-blue-600 to-teal-600 hover:from-blue-700 hover:to-teal-700 text-white font-medium py-3 rounded-lg transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-xl"
+                className="w-full bg-gradient-to-r from-blue-600 to-teal-600 hover:from-blue-700 hover:to-teal-700 text-white font-semibold py-3 rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50"
                 disabled={loading}
               >
                 {loading ? (
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center justify-center gap-2">
                     <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Signing In...
+                    <span>Signing in...</span>
                   </div>
                 ) : (
-                  "Sign In"
+                  <span>Sign In</span>
                 )}
               </Button>
 
-              <div className="text-center space-y-2">
+              <div className="text-center space-y-3">
                 <button
                   type="button"
                   onClick={onReset}
-                  className="text-sm text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                  className="text-sm text-blue-600 hover:text-blue-800 transition-colors"
                   disabled={loading}
                 >
                   Forgot your password?
                 </button>
 
-                <div className="relative">
-                  <div className="absolute inset-0 flex items-center">
-                    <span className="w-full border-t" />
-                  </div>
-                  <div className="relative flex justify-center text-xs uppercase">
-                    <span className="bg-white px-2 text-slate-500">or</span>
-                  </div>
+                <div className="text-center">
+                  <button
+                    type="button"
+                    onClick={() => setShowSignUpModal(true)}
+                    className="text-sm text-slate-600 hover:text-blue-600 transition-colors"
+                  >
+                    Need an account? Request access
+                  </button>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={() => setShowSignUpModal(true)}
-                  className="text-sm text-blue-600 hover:text-blue-800 font-medium transition-colors flex items-center gap-1"
-                >
-                  <UserPlus size={14} />
-                  Create New Account
-                </button>
               </div>
             </form>
           </CardContent>
         </Card>
-
-        {/* Footer */}
-        <div className="text-center text-sm text-slate-500">
-          <p>© 2024 JFK Medical Portal. All rights reserved.</p>
-          <p className="mt-1">Secure • Reliable • Professional</p>
-        </div>
       </div>
+    </div>
 
       {/* Sign Up Modal */}
       {showSignUpModal && (
@@ -335,13 +433,15 @@ export default function Login() {
             <div className="p-6">
               {/* Modal Header */}
               <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-xl bg-gradient-to-r from-blue-500 to-teal-500 flex items-center justify-center">
-                    <UserPlus className="text-white" size={20} />
-                  </div>
+                <div className="flex items-center gap-4">
+                  <img
+                    src="/jfk-logo.png"
+                    alt="JFK Medical Center Logo"
+                    className="h-12 w-12 object-cover rounded-full shadow-md"
+                  />
                   <div>
-                    <h3 className="text-lg font-semibold text-slate-800">Create New Account</h3>
-                    <p className="text-sm text-slate-600">Join the JFK Medical Portal community</p>
+                    <h3 className="text-xl font-bold text-slate-800">Request Account Access</h3>
+                    <p className="text-sm text-slate-600">Join the JFK Medical Education Community</p>
                   </div>
                 </div>
                 <button

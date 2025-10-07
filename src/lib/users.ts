@@ -1,14 +1,15 @@
-import { 
-  collection, 
-  doc, 
-  getDocs, 
-  getDoc, 
-  addDoc, 
-  updateDoc, 
+import {
+  collection,
+  doc,
+  getDocs,
+  getDoc,
+  addDoc,
+  updateDoc,
   deleteDoc,
-  query, 
-  where, 
+  query,
+  where,
   orderBy,
+  limit,
   Timestamp,
   writeBatch
 } from 'firebase/firestore';
@@ -181,21 +182,38 @@ export async function getUserById(userId: string): Promise<UserProfile | null> {
   }
 }
 
-// Get user by Firebase Auth UID
+// Get user by Firebase Auth UID - Optimized with caching
+const userCache = new Map<string, { data: UserProfile | null, timestamp: number }>();
+const USER_CACHE_DURATION = 2 * 60 * 1000; // 2 minutes for user data
+
 export async function getUserByUid(uid: string): Promise<UserProfile | null> {
   try {
+    // Check cache first
+    const cacheKey = `uid_${uid}`;
+    const cached = userCache.get(cacheKey);
+
+    if (cached && (Date.now() - cached.timestamp) < USER_CACHE_DURATION) {
+      return cached.data;
+    }
+
     const usersRef = collection(db, USERS_COLLECTION);
-    const q = query(usersRef, where('uid', '==', uid));
+    const q = query(usersRef, where('uid', '==', uid), limit(1));
     const querySnapshot = await getDocs(q);
-    
+
+    let result: UserProfile | null = null;
+
     if (!querySnapshot.empty) {
       const doc = querySnapshot.docs[0];
-      return {
+      result = {
         id: doc.id,
         ...doc.data()
       } as UserProfile;
     }
-    return null;
+
+    // Cache the result
+    userCache.set(cacheKey, { data: result, timestamp: Date.now() });
+
+    return result;
   } catch (error) {
     console.error('Error fetching user by UID:', error);
     throw new Error('Failed to fetch user by UID');
@@ -353,24 +371,30 @@ export async function createUserWithoutSignIn(userData: CreateUserInput): Promis
   }
 }
 
-// Update user
+// Update user - Optimized with cache invalidation
 export async function updateUser(userId: string, updates: Partial<UserProfile>): Promise<void> {
   try {
     console.log('🔄 Updating user:', userId, 'with updates:', updates);
-    
+
     // Filter out undefined values to prevent Firestore errors
     const cleanUpdates = Object.fromEntries(
       Object.entries(updates).filter(([, value]) => value !== undefined)
     );
-    
+
     console.log('🧹 Clean updates:', cleanUpdates);
-    
+
     const userRef = doc(db, USERS_COLLECTION, userId);
     await updateDoc(userRef, {
       ...cleanUpdates,
       updatedAt: Timestamp.now()
     });
-    
+
+    // Invalidate user cache when user data changes
+    const uid = updates.uid;
+    if (uid) {
+      userCache.delete(`uid_${uid}`);
+    }
+
     console.log('✅ User updated successfully');
   } catch (error) {
     console.error('❌ Error updating user:', {

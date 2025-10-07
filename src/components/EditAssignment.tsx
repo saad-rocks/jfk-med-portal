@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
-import { updateAssignment } from "../lib/assignments";
+import { updateAssignment, getCourseWeightUsage, listAssignments } from "../lib/assignments";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "../firebase";
 import { useRole } from "../hooks/useRole";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -39,6 +41,8 @@ export default function EditAssignment({
   const { user, role } = useRole();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [attachments, setAttachments] = useState<string[]>(assignment.attachments || []);
+  const [weightUsage, setWeightUsage] = useState<{ total: number; remaining: number } | null>(null);
+  const [gradingMode, setGradingMode] = useState<'per-assignment' | 'category'>('per-assignment');
 
   const {
     register,
@@ -58,6 +62,27 @@ export default function EditAssignment({
   });
 
   const assignmentType = watch("type");
+
+  // Load weight usage excluding this assignment to get remaining room
+  useEffect(() => {
+    (async () => {
+      try {
+        if (!assignment.courseId) return;
+        const cDoc = await getDoc(doc(db, 'courses', assignment.courseId));
+        if (cDoc.exists()) {
+          const cData = cDoc.data() as any;
+          if (cData.gradingMode) setGradingMode(cData.gradingMode);
+        }
+        const all = await listAssignments(assignment.courseId);
+        const totalExcluding = all.filter(a => a.id !== assignment.id).reduce((s, a) => s + Number(a.weight || 0), 0);
+        const remaining = Math.max(0, 100 - totalExcluding);
+        setWeightUsage({ total: totalExcluding, remaining });
+      } catch (e) {
+        console.error('Error loading weight usage for edit:', e);
+        setWeightUsage(null);
+      }
+    })();
+  }, [assignment.id, assignment.courseId]);
 
   // Check if user has teacher role
   if (role !== 'teacher') {
@@ -258,14 +283,28 @@ export default function EditAssignment({
                     min={0}
                     max={100}
                     step={0.1}
+                    disabled={gradingMode === 'category'}
                     {...register("weight", {
                       required: "Weight is required",
                       min: { value: 0, message: "Weight must be positive" },
-                      max: { value: 100, message: "Weight cannot exceed 100%" }
+                      max: { value: 100, message: "Weight cannot exceed 100%" },
+                      validate: (v) => {
+                        if (gradingMode === 'category') return true;
+                        if (!weightUsage) return true;
+                        // Remaining here is excluding this assignment's current weight
+                        const remaining = weightUsage.remaining + Number(assignment.weight || 0);
+                        return Number(v) <= remaining + 1e-6 || `Only ${remaining.toFixed(1)}% available when considering current allocation`;
+                      }
                     })}
                     placeholder="10"
                     className={`h-11 bg-white/90 ${errors.weight ? "border-critical-500 focus:border-critical-500" : ""}`}
                   />
+                  {gradingMode === 'category' && (
+                    <p className="text-xs text-slate-600">Category-based grading is enabled. Assignment weights are managed by category.</p>
+                  )}
+                  {weightUsage && (
+                    <p className="text-xs text-slate-600">Allocated (others): <span className="font-medium">{weightUsage.total.toFixed(1)}%</span> • Available: <span className="font-medium">{(weightUsage.remaining + Number(assignment.weight || 0)).toFixed(1)}%</span> (target total: 100%)</p>
+                  )}
                   {errors.weight && (
                     <p className="text-critical-500 text-sm">{errors.weight.message}</p>
                   )}

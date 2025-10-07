@@ -45,9 +45,12 @@ service cloud.firestore {
       // TODO: Restrict to admin/teacher once proper claims are set up
       allow create: if isSignedIn();
 
-      // Update/Delete: admin can modify any; teacher can update instructor field
-      allow update, delete: if isSignedIn() && (isAdmin() || (isTeacher() && isOwner()) || 
-        (isTeacher() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['instructor'])) || isTeacher());
+      // Update/Delete: admin can modify any; teachers may modify their own courses; non-owner teachers may update only instructor
+      allow update, delete: if isSignedIn() && (
+        isAdmin() ||
+        (isTeacher() && isOwner()) ||
+        (isTeacher() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['instructor']))
+      );
     }
 
     // Enrollments collection rules
@@ -139,6 +142,28 @@ service cloud.firestore {
       allow create: if isSignedIn();
       allow update, delete: if isSignedIn(); // Temporarily allow all for demo
       // TODO: Restrict to admin/teacher for updates once proper claims are set up
+    }
+
+    // Time Entries collection rules (for time tracking - faculty and employees only)
+    match /timeEntries/{entryId} {
+      // Read access - only teachers/admins can read their own entries, admins can read all
+      allow get: if isSignedIn() && (isTeacher() || isAdmin()) && (request.auth.uid == resource.data.userId || isAdmin());
+      allow list: if isSignedIn() && (isTeacher() || isAdmin()) && (request.auth.uid == resource.data.userId || isAdmin());
+
+      // Write access - only teachers/admins can create their own entries, admins can do anything
+      allow create: if isSignedIn() && (isTeacher() || isAdmin()) && (request.auth.uid == request.resource.data.userId || isAdmin());
+      allow update, delete: if isSignedIn() && (isTeacher() || isAdmin()) && (request.auth.uid == resource.data.userId || isAdmin());
+    }
+
+    // Time Sessions collection rules (for active time tracking sessions - faculty and employees only)
+    match /timeSessions/{sessionId} {
+      // Read access - only teachers/admins can read their own sessions, admins can read all
+      allow get: if isSignedIn() && (isTeacher() || isAdmin()) && (request.auth.uid == resource.data.userId || isAdmin());
+      allow list: if isSignedIn() && (isTeacher() || isAdmin()) && (request.auth.uid == resource.data.userId || isAdmin());
+
+      // Write access - only teachers/admins can create/manage their own sessions, admins can do anything
+      allow create: if isSignedIn() && (isTeacher() || isAdmin()) && (request.auth.uid == request.resource.data.userId || isAdmin());
+      allow update, delete: if isSignedIn() && (isTeacher() || isAdmin()) && (request.auth.uid == resource.data.userId || isAdmin());
     }
   }
 }

@@ -4,10 +4,16 @@ import { auth, db } from "../firebase";
 export type EnrollmentStatus = "enrolled" | "dropped" | "completed";
 
 export type Enrollment = {
+  id?: string;
   studentId: string;
   courseId: string;
   semesterId: string;
   status: EnrollmentStatus;
+  enrolledAt: number;
+  droppedAt?: number;
+  completedAt?: number;
+  grade?: string;
+  gpa?: number;
   createdAt: number;
 };
 
@@ -18,18 +24,86 @@ export type EnrollmentInput = {
   status?: EnrollmentStatus;
 };
 
+// Cache for enrollment data with longer TTL for better performance
+const enrollmentCache = new Map<string, { data: any, timestamp: number }>();
+const ENROLLMENT_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes for enrollment data
+
+// Cache for user data to prevent repeated fetches
+const userDataCache = new Map<string, { data: any, timestamp: number }>();
+const USER_CACHE_DURATION = 10 * 60 * 1000; // 10 minutes for user data
+
+// Diagnostic function to check enrollment data consistency
+export async function diagnoseEnrollmentData(courseId: string): Promise<{
+  totalEnrollments: number;
+  uniqueStudentIds: string[];
+  sampleEnrollments: any[];
+  issues: string[];
+}> {
+  try {
+    console.log('🔍 Diagnosing enrollment data for course:', courseId);
+
+    const issues: string[] = [];
+    const uniqueStudentIds = new Set<string>();
+    const sampleEnrollments: any[] = [];
+
+    const enrollments = await listEnrollments();
+    const courseEnrollments = enrollments.filter(e => e.courseId === courseId);
+
+    console.log('📊 Found', courseEnrollments.length, 'enrollments for course');
+
+    courseEnrollments.forEach((enrollment) => {
+      uniqueStudentIds.add(enrollment.studentId);
+
+      // Collect sample enrollments
+      if (sampleEnrollments.length < 10) {
+        sampleEnrollments.push(enrollment);
+      }
+
+      // Check for potential issues
+      if (!enrollment.studentId || enrollment.studentId.trim() === '') {
+        issues.push(`Empty studentId in enrollment ${enrollment.id}`);
+      }
+    });
+
+    return {
+      totalEnrollments: courseEnrollments.length,
+      uniqueStudentIds: Array.from(uniqueStudentIds),
+      sampleEnrollments,
+      issues
+    };
+  } catch (error) {
+    console.error('Error diagnosing enrollment data:', error);
+    return {
+      totalEnrollments: 0,
+      uniqueStudentIds: [],
+      sampleEnrollments: [],
+      issues: [`Diagnostic error: ${error instanceof Error ? error.message : 'Unknown error'}`]
+    };
+  }
+}
+
 export async function createEnrollment(input: EnrollmentInput): Promise<string> {
   const user = auth.currentUser;
   if (!user) throw new Error("Must be signed in");
 
-  const ref = await addDoc(collection(db, "enrollments"), {
-    studentId: input.studentId,
-    courseId: input.courseId,
-    semesterId: input.semesterId,
-    status: input.status ?? "enrolled",
-    createdAt: Date.now(),
-  } as Enrollment);
-  return ref.id;
+  try {
+    const ref = await addDoc(collection(db, "enrollments"), {
+      studentId: input.studentId,
+      courseId: input.courseId,
+      semesterId: input.semesterId,
+      status: input.status ?? "enrolled",
+      createdAt: Date.now(),
+    } as Enrollment);
+
+    // Invalidate relevant caches
+    enrollmentCache.delete(`student_${input.studentId}`);
+    enrollmentCache.delete(`course_${input.courseId}`);
+
+    return ref.id;
+  } catch (error) {
+    console.error('Error creating enrollment:', error);
+    throw new Error('Failed to create enrollment');
+  }
 }
 
 export async function listEnrollments(filters?: { courseId?: string; semesterId?: string }): Promise<Array<Enrollment & { id: string }>> {
@@ -47,20 +121,115 @@ export async function listEnrollments(filters?: { courseId?: string; semesterId?
   return out;
 }
 
+// Optimized function to get enrollments with student details in bulk (fixes N+1 queries)
+export async function getEnrollmentsWithStudentDetails(courseId: string): Promise<Array<Enrollment & {
+  id: string;
+  studentName: string;
+  studentEmail: string;
+  studentMdYear: string;
+}>> {
+  try {
+    const cacheKey = `course_enrollments_with_details_${courseId}`;
+    const cached = enrollmentCache.get(cacheKey);
+
+    if (cached && Date.now() - cached.timestamp < ENROLLMENT_CACHE_DURATION) {
+      return cached.data;
+    }
+
+    // Get all enrollments for the course
+    const enrollments = await listEnrollments({ courseId });
+    const activeEnrollments = enrollments.filter(e => e.status === 'enrolled');
+
+    if (activeEnrollments.length === 0) {
+      enrollmentCache.set(cacheKey, { data: [], timestamp: Date.now() });
+      return [];
+    }
+
+    // Get all users in one query (instead of N queries)
+    let allUsers;
+    const userCacheKey = 'all_users';
+    const userCached = userDataCache.get(userCacheKey);
+
+    if (userCached && Date.now() - userCached.timestamp < USER_CACHE_DURATION) {
+      allUsers = userCached.data;
+    } else {
+      const { getAllUsers } = await import('./users');
+      allUsers = await getAllUsers();
+      userDataCache.set(userCacheKey, { data: allUsers, timestamp: Date.now() });
+    }
+
+    // Create a user map for O(1) lookups
+    const usersMap = new Map(allUsers.map((user: any) => [user.id, user]));
+
+    // Combine enrollment and user data
+    const enrollmentsWithDetails = activeEnrollments.map(enrollment => {
+      const student = usersMap.get(enrollment.studentId) as any;
+      return {
+        ...enrollment,
+        studentName: student?.name || student?.email || 'Unknown Student',
+        studentEmail: student?.email || '',
+        studentMdYear: student?.mdYear || 'MD-1'
+      };
+    });
+
+    // Cache the result
+    enrollmentCache.set(cacheKey, { data: enrollmentsWithDetails, timestamp: Date.now() });
+
+    return enrollmentsWithDetails;
+  } catch (error) {
+    console.error('Error getting enrollments with student details:', error);
+    return [];
+  }
+}
+
 export async function listEnrollmentsForStudent(studentId: string): Promise<Array<Enrollment & { id: string }>> {
-  const q = query(collection(db, "enrollments"), where("studentId", "==", studentId));
-  const snap = await getDocs(q);
-  const out: Array<Enrollment & { id: string }> = [];
-  snap.forEach(d => out.push({ id: d.id, ...(d.data() as Enrollment) }));
-  return out;
+  try {
+    // Check cache first
+    const cacheKey = `student_${studentId}`;
+    const cached = enrollmentCache.get(cacheKey);
+
+    if (cached && (Date.now() - cached.timestamp) < ENROLLMENT_CACHE_DURATION) {
+      return cached.data;
+    }
+
+    const q = query(collection(db, "enrollments"), where("studentId", "==", studentId));
+    const snap = await getDocs(q);
+    const out: Array<Enrollment & { id: string }> = [];
+
+    snap.forEach(d => out.push({ id: d.id, ...(d.data() as Enrollment) }));
+
+    // Cache the results
+    enrollmentCache.set(cacheKey, { data: out, timestamp: Date.now() });
+
+    return out;
+  } catch (error) {
+    console.error('Error fetching enrollments for student:', error);
+    throw new Error('Failed to fetch student enrollments');
+  }
 }
 
 export async function updateEnrollmentStatus(enrollmentId: string, status: EnrollmentStatus): Promise<void> {
-  await updateDoc(doc(db, "enrollments", enrollmentId), { status });
+  try {
+    await updateDoc(doc(db, "enrollments", enrollmentId), { status });
+
+    // Invalidate all enrollment caches when data changes
+    enrollmentCache.clear();
+  } catch (error) {
+    console.error('Error updating enrollment status:', error);
+    throw new Error('Failed to update enrollment status');
+  }
 }
 
 export async function deleteEnrollment(enrollmentId: string): Promise<void> {
-  await deleteDoc(doc(db, "enrollments", enrollmentId));
+  try {
+    await deleteDoc(doc(db, "enrollments", enrollmentId));
+
+    // Invalidate all enrollment caches when data changes
+    enrollmentCache.clear();
+  } catch (error) {
+    console.error('Error deleting enrollment:', error);
+    throw new Error('Failed to delete enrollment');
+  }
 }
 
 export async function getCourseById(courseId: string): Promise<{ id: string; [key: string]: unknown } | null> {

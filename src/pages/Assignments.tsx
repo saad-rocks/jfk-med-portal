@@ -1,32 +1,39 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import { Link, useNavigate } from "react-router-dom";
+import { collection, getDocs, query, where, doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useRole } from "../hooks/useRole";
 import { listAssignments } from "../lib/assignments";
 import { getTeacherAssignments } from "../lib/teacherAssignments";
 import { getAllUsers } from "../lib/users";
-import CreateAssignment from "../components/CreateAssignment";
-import EditAssignment from "../components/EditAssignment";
-import AssignmentSubmission from "../components/AssignmentSubmission";
-import type { Assignment } from "../types";
+import { getSubmissionForStudent } from "../lib/submissions";
+import { listCourses } from "../lib/courses";
+// Assignment modals moved to routed pages
+import type { Assignment, Submission, Course, User } from "../types";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
-import { Plus, FileText, Calendar, Users, BookOpen, X, Target, Award, Clock, AlertTriangle, Bell, CheckCircle, TrendingUp, AlertCircle, Filter, Eye, Upload } from "lucide-react";
+// // import { MedicalModal } from "../components/ui/medical-modal";
+import { Plus, FileText, Calendar, Users, BookOpen, X, Target, Award, Clock, AlertTriangle, Bell, CheckCircle, TrendingUp, AlertCircle, Filter, Eye, Upload, GraduationCap, User as UserIcon } from "lucide-react";
+
+interface EnrichedAssignment extends Assignment {
+  id: string;
+  submission?: Submission | null;
+  course?: Course;
+  instructor?: User;
+}
 
 export default function Assignments() {
+  const navigate = useNavigate();
   const { role, user } = useRole();
-  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [assignments, setAssignments] = useState<EnrichedAssignment[]>([]);
   const [teacherCourses, setTeacherCourses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [showSubmissionModal, setShowSubmissionModal] = useState(false);
+
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
 
   // Filtering and search
-  const [filterType, setFilterType] = useState<'all' | 'upcoming' | 'overdue' | 'past'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'upcoming' | 'overdue' | 'past' | 'submitted' | 'graded'>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
   const fetchData = async () => {
@@ -53,20 +60,28 @@ export default function Assignments() {
         setTeacherCourses(teacherAssignments);
 
         // Get all assignments for teacher's courses
-        const allAssignments: Assignment[] = [];
+        const allAssignments: EnrichedAssignment[] = [];
         for (const course of teacherAssignments) {
           console.log("🔍 Getting assignments for course:", course.courseId);
           const courseAssignments = await listAssignments(course.courseId);
           console.log("📝 Course assignments found:", courseAssignments);
-          allAssignments.push(...courseAssignments);
+
+          // Enrich with course data
+          for (const assignment of courseAssignments) {
+            const enrichedAssignment: EnrichedAssignment = {
+              ...assignment,
+              id: assignment.id!
+            };
+            allAssignments.push(enrichedAssignment);
+          }
         }
         console.log("📋 Total assignments found:", allAssignments);
         setAssignments(allAssignments);
       } else if (role === 'student') {
         // For students, get their Firestore document ID first
-        const allUsers = await getAllUsers();
-        const currentUser = allUsers.find(u => u.email?.toLowerCase() === user.email?.toLowerCase());
-        
+        const studentUsers = await getAllUsers();
+        const currentUser = studentUsers.find(u => u.email?.toLowerCase() === user.email?.toLowerCase());
+
         if (!currentUser?.id) {
           console.error("❌ Student profile not found in database for email:", user.email);
           setAssignments([]);
@@ -85,15 +100,56 @@ export default function Assignments() {
 
         console.log("🔍 Student enrolled in courses:", enrolledCourseIds);
 
-        // Get assignments for all enrolled courses
-        const allAssignments: Assignment[] = [];
+        // Get assignments for all enrolled courses with enriched data
+        const allAssignments: EnrichedAssignment[] = [];
+        const allCourses = await listCourses();
+
         for (const courseId of enrolledCourseIds) {
           console.log("🔍 Getting assignments for course:", courseId);
           const courseAssignments = await listAssignments(courseId);
           console.log("📝 Course assignments found:", courseAssignments);
-          allAssignments.push(...courseAssignments);
+
+          // Get course data
+          const courseData = allCourses.find(c => c.id === courseId);
+
+          // Get instructor data from studentUsers (which contains UserProfile type)
+          let instructorData: User | undefined;
+          if (courseData?.instructor) {
+            const instructorProfile = studentUsers.find(u => u.name === courseData.instructor);
+            // Convert UserProfile to User type if needed
+            if (instructorProfile) {
+              instructorData = {
+                id: instructorProfile.id,
+                uid: instructorProfile.uid,
+                name: instructorProfile.name,
+                email: instructorProfile.email,
+                role: instructorProfile.role,
+                status: instructorProfile.status,
+                createdAt: typeof instructorProfile.createdAt === 'number'
+                  ? instructorProfile.createdAt
+                  : instructorProfile.createdAt instanceof Date
+                  ? instructorProfile.createdAt.getTime()
+                  : Date.now()
+              } as User;
+            }
+          }
+
+          // Enrich each assignment with submission status, course, and instructor data
+          for (const assignment of courseAssignments) {
+            // IMPORTANT: Use user.uid (Firebase Auth UID) not currentUser.id (Firestore doc ID)
+            // because submissions are saved with user.uid
+            const submission = await getSubmissionForStudent(assignment.id!, user.uid);
+
+            const enrichedAssignment: EnrichedAssignment = {
+              ...assignment,
+              id: assignment.id!,
+              submission: submission || undefined, // Ensure null becomes undefined
+              course: courseData,
+              instructor: instructorData
+            };
+            allAssignments.push(enrichedAssignment);
+          }
         }
-        console.log("📋 Total student assignments found:", allAssignments);
         setAssignments(allAssignments);
       }
     } catch (error) {
@@ -107,23 +163,50 @@ export default function Assignments() {
     fetchData();
   }, [role, user]);
 
+  // Refetch data when user navigates back to this page
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchData();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [role, user]);
+
   // Filter and sort assignments
   const filteredAssignments = assignments.filter(assignment => {
     const now = new Date();
     const dueDate = new Date(assignment.dueAt);
     const isOverdue = dueDate < now;
     const isDueSoon = !isOverdue && (dueDate.getTime() - now.getTime()) <= (3 * 24 * 60 * 60 * 1000); // 3 days
+    const isSubmitted = !!assignment.submission;
+    const isGraded = assignment.submission?.grade?.gradedAt != null;
 
     // Filter by type
     switch (filterType) {
       case 'upcoming':
-        if (isOverdue) return false;
+        // Show assignments that are due soon and not yet submitted
+        if (isOverdue || isSubmitted) return false;
         break;
       case 'overdue':
-        if (!isOverdue) return false;
+        // Show only overdue assignments that haven't been submitted
+        if (!isOverdue || isSubmitted) return false;
         break;
       case 'past':
-        if (!isOverdue) return false;
+        // Show past due assignments (including submitted and graded)
+        if (!isOverdue && !isSubmitted && !isGraded) return false;
+        break;
+      case 'submitted':
+        // Show only submitted but not yet graded
+        if (!isSubmitted || isGraded) return false;
+        break;
+      case 'graded':
+        // Show only graded assignments
+        if (!isGraded) return false;
         break;
       default: // 'all'
         break;
@@ -157,14 +240,32 @@ export default function Assignments() {
       total: assignments.length,
       upcoming: 0,
       overdue: 0,
-      completed: 0
+      completed: 0,
+      submitted: 0,
+      graded: 0
     };
 
     assignments.forEach(assignment => {
       const dueDate = new Date(assignment.dueAt);
-      if (dueDate < now) {
+      const isSubmitted = !!assignment.submission;
+      const isGraded = assignment.submission?.grade?.gradedAt != null;
+
+      // Count graded assignments
+      if (isGraded) {
+        stats.graded++;
+        stats.completed++;
+      }
+      // Count submitted but not graded
+      else if (isSubmitted) {
+        stats.submitted++;
+        stats.completed++; // Submitted also counts as completed
+      }
+      // Count overdue and not submitted
+      else if (dueDate < now) {
         stats.overdue++;
-      } else if ((dueDate.getTime() - now.getTime()) <= (7 * 24 * 60 * 60 * 1000)) { // 7 days
+      }
+      // Count upcoming (due within 7 days and not submitted)
+      else if ((dueDate.getTime() - now.getTime()) <= (7 * 24 * 60 * 60 * 1000)) {
         stats.upcoming++;
       }
     });
@@ -241,7 +342,7 @@ export default function Assignments() {
           {role === 'teacher' && (
             <Button
               className="flex items-center gap-2 bg-medical-600 hover:bg-medical-700"
-              onClick={() => setShowCreateModal(true)}
+              onClick={() => navigate("/assignments/new")}
             >
               <Plus size={16} />
               Create Assignment
@@ -316,25 +417,72 @@ export default function Assignments() {
           </CardContent>
         </Card>
 
-        <Card className="border-l-4 border-l-blue-500">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Completed</p>
-                <p className="text-2xl font-bold text-blue-600">{stats.total - stats.overdue - stats.upcoming}</p>
+        {role === 'student' && (
+          <>
+            <Card className="border-l-4 border-l-blue-500">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Submitted</p>
+                    <p className="text-2xl font-bold text-blue-600">{stats.submitted}</p>
+                  </div>
+                  <Upload className="h-8 w-8 text-blue-500" />
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="mt-2 w-full border-blue-200 text-blue-600 hover:bg-blue-50"
+                  onClick={() => setFilterType('submitted')}
+                >
+                  View Submitted
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-green-500">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Graded</p>
+                    <p className="text-2xl font-bold text-green-600">{stats.graded}</p>
+                  </div>
+                  <CheckCircle className="h-8 w-8 text-green-500" />
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="mt-2 w-full border-green-200 text-green-600 hover:bg-green-50"
+                  onClick={() => setFilterType('graded')}
+                >
+                  View Graded
+                </Button>
+              </CardContent>
+            </Card>
+          </>
+        )}
+        {role === 'teacher' && (
+          <Card className="border-l-4 border-l-blue-500">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Past Due</p>
+                  <p className="text-2xl font-bold text-blue-600">
+                    {assignments.filter(a => new Date(a.dueAt) < new Date()).length}
+                  </p>
+                </div>
+                <CheckCircle className="h-8 w-8 text-blue-500" />
               </div>
-              <CheckCircle className="h-8 w-8 text-blue-500" />
-            </div>
-            <Button
-              size="sm"
-              variant="outline"
-              className="mt-2 w-full border-blue-200 text-blue-600 hover:bg-blue-50"
-              onClick={() => setFilterType('past')}
-            >
-              View Completed
-            </Button>
-          </CardContent>
-        </Card>
+              <Button
+                size="sm"
+                variant="outline"
+                className="mt-2 w-full border-blue-200 text-blue-600 hover:bg-blue-50"
+                onClick={() => setFilterType('past')}
+              >
+                View Past Due
+              </Button>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Quick Filters */}
@@ -372,15 +520,41 @@ export default function Assignments() {
           Overdue ({stats.overdue})
         </Button>
 
-        <Button
-          variant={filterType === 'past' ? 'primary' : 'outline'}
-          size="sm"
-          onClick={() => setFilterType('past')}
-          className="flex items-center gap-1"
-        >
-          <CheckCircle size={14} />
-          Past Due ({stats.total - stats.overdue - stats.upcoming})
-        </Button>
+        {role === 'student' && (
+          <>
+            <Button
+              variant={filterType === 'submitted' ? 'primary' : 'outline'}
+              size="sm"
+              onClick={() => setFilterType('submitted')}
+              className="flex items-center gap-1"
+            >
+              <Upload size={14} />
+              Submitted ({stats.submitted})
+            </Button>
+
+            <Button
+              variant={filterType === 'graded' ? 'success' : 'outline'}
+              size="sm"
+              onClick={() => setFilterType('graded')}
+              className="flex items-center gap-1"
+            >
+              <CheckCircle size={14} />
+              Graded ({stats.graded})
+            </Button>
+          </>
+        )}
+
+        {role === 'teacher' && (
+          <Button
+            variant={filterType === 'past' ? 'primary' : 'outline'}
+            size="sm"
+            onClick={() => setFilterType('past')}
+            className="flex items-center gap-1"
+          >
+            <CheckCircle size={14} />
+            Past Due ({assignments.filter(a => new Date(a.dueAt) < new Date()).length})
+          </Button>
+        )}
       </div>
 
       {/* Teacher Course Overview */}
@@ -528,10 +702,29 @@ export default function Assignments() {
                             <h3 className="text-xl font-bold text-slate-800 leading-tight">
                               {assignment.title}
                             </h3>
-                            <div className="flex items-center gap-2 mt-1">
+                            <div className="flex flex-wrap items-center gap-2 mt-1">
                               <Badge className={`${getAssignmentTypeColor(assignment.type)} border font-medium`}>
                                 {getAssignmentTypeLabel(assignment.type)}
                               </Badge>
+                              {assignment.submission && (
+                                <Badge className={`border ${
+                                  assignment.submission.grade.gradedAt
+                                    ? 'bg-green-100 text-green-700 border-green-200'
+                                    : 'bg-blue-100 text-blue-700 border-blue-200'
+                                }`}>
+                                  {assignment.submission.grade.gradedAt ? (
+                                    <>
+                                      <CheckCircle size={12} className="mr-1" />
+                                      Graded
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Upload size={12} className="mr-1" />
+                                      Submitted
+                                    </>
+                                  )}
+                                </Badge>
+                              )}
                               <Badge className={`border ${
                                 isOverdue ? 'bg-red-500 text-white' :
                                 isDueSoon ? 'bg-yellow-500 text-white' :
@@ -546,7 +739,57 @@ export default function Assignments() {
                         </div>
                         
                         <p className="text-slate-600 mb-4 leading-relaxed">{assignment.instructions}</p>
-                        
+
+                        {/* Course and Instructor Info */}
+                        {role === 'student' && (assignment.course || assignment.instructor) && (
+                          <div className="flex flex-wrap items-center gap-4 mb-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                            {assignment.course && (
+                              <div className="flex items-center gap-2 text-sm">
+                                <GraduationCap size={16} className="text-blue-600" />
+                                <span className="font-medium text-slate-800">{assignment.course.code}</span>
+                                <span className="text-slate-600">- {assignment.course.title}</span>
+                              </div>
+                            )}
+                            {assignment.instructor && (
+                              <div className="flex items-center gap-2 text-sm text-slate-600">
+                                <UserIcon size={16} className="text-slate-500" />
+                                <span>Instructor: <span className="font-medium text-slate-800">{assignment.instructor.name}</span></span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Submission Status for Students */}
+                        {role === 'student' && assignment.submission && (
+                          <div className={`mb-4 p-3 rounded-lg border ${
+                            assignment.submission.grade.gradedAt
+                              ? 'bg-green-50 border-green-200'
+                              : 'bg-blue-50 border-blue-200'
+                          }`}>
+                            <div className="flex items-center gap-2 text-sm">
+                              {assignment.submission.grade.gradedAt ? (
+                                <>
+                                  <CheckCircle size={16} className="text-green-600" />
+                                  <span className="font-medium text-green-800">
+                                    Graded: {assignment.submission.grade.points}/{assignment.maxPoints} points
+                                  </span>
+                                  {assignment.submission.grade.feedback && (
+                                    <span className="text-green-700">• {assignment.submission.grade.feedback}</span>
+                                  )}
+                                </>
+                              ) : (
+                                <>
+                                  <Upload size={16} className="text-blue-600" />
+                                  <span className="font-medium text-blue-800">
+                                    Submitted on {new Date(assignment.submission.submittedAt).toLocaleDateString()}
+                                  </span>
+                                  <span className="text-blue-700">• Pending review</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
                           <div className="flex items-center gap-2 text-slate-600">
                             <Calendar size={16} className="text-medical-500" />
@@ -570,16 +813,27 @@ export default function Assignments() {
                         {role === 'student' ? (
                           <Button
                             className={`flex items-center gap-2 font-medium ${
-                              isOverdue ? 'bg-red-600 hover:bg-red-700 text-white' :
-                              isDueSoon ? 'bg-yellow-600 hover:bg-yellow-700 text-white' :
-                              'bg-green-600 hover:bg-green-700 text-white'
+                              assignment.submission
+                                ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                                : isOverdue
+                                ? 'bg-red-600 hover:bg-red-700 text-white'
+                                : isDueSoon
+                                ? 'bg-yellow-600 hover:bg-yellow-700 text-white'
+                                : 'bg-green-600 hover:bg-green-700 text-white'
                             }`}
                             onClick={() => {
-                              setSelectedAssignment(assignment);
-                              setShowSubmissionModal(true);
+                              // Scroll to top when opening modal
+                              window.scrollTo({ top: 0, behavior: 'smooth' });
+
+                              navigate(`/assignments/${assignment.id}/submit`);
                             }}
                           >
-                            {isOverdue ? (
+                            {assignment.submission ? (
+                              <>
+                                <Eye size={16} />
+                                View Submission
+                              </>
+                            ) : isOverdue ? (
                               <>
                                 <AlertTriangle size={16} />
                                 Submit Now
@@ -587,7 +841,7 @@ export default function Assignments() {
                             ) : (
                               <>
                                 <Upload size={16} />
-                                View & Submit
+                                Submit Assignment
                               </>
                             )}
                           </Button>
@@ -595,8 +849,10 @@ export default function Assignments() {
                           <Button
                             className="flex items-center gap-2 font-medium bg-medical-600 hover:bg-medical-700 text-white"
                             onClick={() => {
-                              setSelectedAssignment(assignment);
-                              setShowEditModal(true);
+                              // Scroll to top when opening modal
+                              window.scrollTo({ top: 0, behavior: 'smooth' });
+ 
+                              navigate(`/assignments/${assignment.id}/edit`);
                             }}
                           >
                             <Eye size={16} />
@@ -648,83 +904,20 @@ export default function Assignments() {
       </div>
 
       {/* Create Assignment Modal */}
-      {showCreateModal && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-md flex items-center justify-center z-50 p-4">
-          <div className="relative w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-            <button
-              onClick={() => setShowCreateModal(false)}
-              className="absolute top-4 right-4 z-10 p-2 bg-white/90 backdrop-blur-sm rounded-full shadow-lg hover:bg-white transition-all duration-200"
-            >
-              <X size={20} />
-            </button>
-            <CreateAssignment
-              onSuccess={() => {
-                setShowCreateModal(false);
-                fetchData(); // Refresh the assignments list
-              }}
-              onCancel={() => setShowCreateModal(false)}
-            />
-          </div>
-        </div>
-      )}
 
       {/* Edit Assignment Modal */}
-      {showEditModal && selectedAssignment && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-md flex items-center justify-center z-50 p-4">
-          <div className="relative w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-            <button
-              onClick={() => {
-                setShowEditModal(false);
-                setSelectedAssignment(null);
-              }}
-              className="absolute top-4 right-4 z-10 p-2 bg-white/90 backdrop-blur-sm rounded-full shadow-lg hover:bg-white transition-all duration-200"
-            >
-              <X size={20} />
-            </button>
-            <EditAssignment
-              assignment={selectedAssignment}
-              onSuccess={() => {
-                setShowEditModal(false);
-                setSelectedAssignment(null);
-                fetchData(); // Refresh the assignments list
-              }}
-              onCancel={() => {
-                setShowEditModal(false);
-                setSelectedAssignment(null);
-              }}
-            />
-          </div>
-        </div>
-      )}
 
       {/* Assignment Submission Modal */}
-      {showSubmissionModal && selectedAssignment && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-md flex items-center justify-center z-50 p-4">
-          <div className="relative w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-            <button
-              onClick={() => {
-                setShowSubmissionModal(false);
-                setSelectedAssignment(null);
-              }}
-              className="absolute top-4 right-4 z-10 p-2 bg-white/90 backdrop-blur-sm rounded-full shadow-lg hover:bg-white transition-all duration-200"
-            >
-              <X size={20} />
-            </button>
-            <AssignmentSubmission
-              assignment={selectedAssignment}
-              onSuccess={() => {
-                setShowSubmissionModal(false);
-                setSelectedAssignment(null);
-                fetchData(); // Refresh the assignments list
-              }}
-              onCancel={() => {
-                setShowSubmissionModal(false);
-                setSelectedAssignment(null);
-              }}
-            />
-          </div>
-        </div>
-      )}
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+

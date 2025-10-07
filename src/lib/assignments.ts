@@ -1,6 +1,14 @@
 import { addDoc, collection, doc, getDoc, getDocs, query, where, updateDoc } from "firebase/firestore";
 import { auth, db } from "../firebase";
-import type { Assignment } from "../types";
+import type { Assignment, Course } from "../types";
+
+// Compute total weight used by all assignments in a course
+export async function getCourseWeightUsage(courseId: string): Promise<{ total: number; remaining: number }> {
+  const assignments = await listAssignments(courseId);
+  const total = assignments.reduce((sum, a) => sum + Number(a.weight || 0), 0);
+  const capped = Math.max(0, Math.min(100, total));
+  return { total: Math.round(capped * 100) / 100, remaining: Math.max(0, Math.round((100 - capped) * 100) / 100) };
+}
 
 export async function createAssignment(a: Omit<Assignment, "id"|"createdAt"|"ownerId"> & { courseId: string }): Promise<string> {
   const user = auth.currentUser;
@@ -11,6 +19,18 @@ export async function createAssignment(a: Omit<Assignment, "id"|"createdAt"|"own
     ownerId: user.uid,
     createdAt: Date.now(),
   } as unknown as Assignment;
+
+  // Enforce course total weight <= 100% (only when not using category-based mode)
+  const courseSnap = await getDoc(doc(db, 'courses', a.courseId));
+  const courseData = courseSnap.exists() ? (courseSnap.data() as Course) : null;
+  const isCategoryMode = courseData?.gradingMode === 'category';
+  if (!isCategoryMode) {
+    const { total } = await getCourseWeightUsage(a.courseId);
+    const nextTotal = (total || 0) + Number(a.weight || 0);
+    if (nextTotal > 100 + 1e-6) {
+      throw new Error(`Total course weight would be ${nextTotal.toFixed(1)}%, which exceeds 100%. Reduce this assignment's weight or adjust others.`);
+    }
+  }
 
   const ref = await addDoc(collection(db, "assignments"), payload);
   return ref.id;
@@ -42,6 +62,23 @@ export async function updateAssignment(assignmentId: string, updates: Partial<As
   // Check if the current user owns this assignment
   if (currentAssignment.ownerId !== user.uid) {
     throw new Error("You can only edit your own assignments");
+  }
+
+  // If weight is being changed, enforce course total <= 100% when not in category mode
+  if (typeof updates.weight !== 'undefined' && currentAssignment.courseId) {
+    const courseSnap = await getDoc(doc(db, 'courses', currentAssignment.courseId));
+    const courseData = courseSnap.exists() ? (courseSnap.data() as Course) : null;
+    const isCategoryMode = courseData?.gradingMode === 'category';
+    if (!isCategoryMode) {
+      const all = await listAssignments(currentAssignment.courseId);
+      const totalExcluding = all
+        .filter(a => a.id !== assignmentId)
+        .reduce((sum, a) => sum + Number(a.weight || 0), 0);
+      const nextTotal = totalExcluding + Number(updates.weight || 0);
+      if (nextTotal > 100 + 1e-6) {
+        throw new Error(`Total course weight would be ${nextTotal.toFixed(1)}%, which exceeds 100%. Reduce this assignment's weight or adjust others.`);
+      }
+    }
   }
 
   // Update the assignment

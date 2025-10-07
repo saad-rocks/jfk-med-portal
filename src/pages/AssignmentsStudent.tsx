@@ -1,17 +1,19 @@
 import { useState, useEffect, useMemo } from "react";
 import { useParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "../firebase";
 import { useRole } from "../hooks/useRole";
 import { listAssignments } from "../lib/assignments";
 import { getSubmissionForStudent } from "../lib/submissions";
-import AssignmentSubmission from "../components/AssignmentSubmission";
+// import AssignmentSubmission from "../components/AssignmentSubmission";
 import type { Assignment, Submission } from "../types";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Input } from "../components/ui/input";
 import { Tabs } from "../components/ui/tabs";
+// import { MedicalModal } from "../components/ui/medical-modal";
 import {
   FileText,
   Calendar,
@@ -46,13 +48,13 @@ interface AssignmentWithSubmission extends Assignment {
 }
 
 export default function AssignmentsStudent() {
+  const navigate = useNavigate();
   const { courseId } = useParams<{ courseId: string }>();
   const { role, user } = useRole();
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [assignmentsWithSubmissions, setAssignmentsWithSubmissions] = useState<AssignmentWithSubmission[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
-  const [showSubmissionModal, setShowSubmissionModal] = useState(false);
+  const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
   
   // Filters and search
   const [selectedCategory, setSelectedCategory] = useState<AssignmentCategory>('all');
@@ -405,8 +407,10 @@ export default function AssignmentsStudent() {
                         'bg-green-600 hover:bg-green-700 text-white'
                       }`}
                       onClick={() => {
+                        // Scroll to top when opening modal
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
                         setSelectedAssignment(assignment);
-                        setShowSubmissionModal(true);
+                        navigate(`/assignments/${assignment.id}/submit`);
                       }}
                     >
                       {assignment.submission ? (
@@ -753,26 +757,13 @@ export default function AssignmentsStudent() {
       ]} />
 
       {/* Assignment Submission Modal */}
-      {showSubmissionModal && selectedAssignment && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-md flex items-center justify-center z-50 p-4">
-          <div className="relative w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-            <AssignmentSubmission
-              assignment={selectedAssignment}
-              onSuccess={() => {
-                setShowSubmissionModal(false);
-                setSelectedAssignment(null);
-                fetchSubmissions(); // Refresh the submissions
-              }}
-              onCancel={() => {
-                setShowSubmissionModal(false);
-                setSelectedAssignment(null);
-              }}
-            />
-          </div>
-        </div>
-      )}
     </div>
   );
 }
+
+
+
+
+
 
 

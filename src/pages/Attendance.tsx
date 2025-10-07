@@ -1,35 +1,37 @@
 import React, { useState, useEffect } from "react";
 import { useRole } from "../hooks/useRole";
+import { useToast } from "../hooks/useToast";
 import { PageHeader } from "../components/layout/PageHeader";
 import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Input } from "../components/ui/input";
-import { Calendar as CalendarComponent, CompactCalendar } from "../components/ui/calendar";
+import { Calendar as CalendarComponent } from "../components/ui/calendar";
 import {
   getTeacherAssignments,
   debugTeacherAssignments,
   createSampleTeacherAssignments,
   type TeacherAssignment
 } from "../lib/teacherAssignments";
-import { listEnrollments, debugEnrollments, createSampleEnrollments, debugDatabaseState } from "../lib/enrollments";
+import { listEnrollments, debugEnrollments, createSampleEnrollments, debugDatabaseState, diagnoseEnrollmentData } from "../lib/enrollments";
 import {
   getAttendanceRecordsForCourseDate,
   getStudentCourseAttendanceRecords,
-  getStudentCourseAttendanceHistory,
   calculateStudentCourseAttendancePercentage,
   createAttendanceRecord,
-  bulkCreateAttendanceRecords,
   getCourseDateAttendanceStats,
-  getCourseAttendanceStats,
-  getCourseAttendanceCalendar,
   getCourseAttendanceDates,
   getStudentCourseAttendanceCalendar,
-  formatDateForStorage
+  formatDateForStorage,
+  quickMarkAttendanceBulk,
+  getAttendanceSummary,
+  diagnoseAttendanceData,
+  fixAttendanceStudentIds,
+  getAttendanceRecordsNeedingFix
 } from "../lib/attendance";
 import { getAllUsers, fixUserUids, type UserProfile } from "../lib/users";
 import { listCourses } from "../lib/courses";
-import type { AttendanceRecord, Course } from "../types";
+import type { AttendanceRecord, Course, Enrollment } from "../types";
 import {
   Calendar,
   Users,
@@ -37,21 +39,25 @@ import {
   XCircle,
   Clock,
   ShieldCheck,
-  UserCheck,
   FileText,
   BarChart3,
   Edit2,
-  Eye,
   BookOpen,
   ChevronLeft,
-  Plus,
-  Search
+  Search,
+  Loader2,
+  AlertCircle,
+  CheckSquare,
+  RefreshCw,
+  Download,
+  Zap
 } from "lucide-react";
 
 type ViewMode = 'course-selection' | 'calendar-view' | 'take-attendance' | 'view-records' | 'student-history';
 
 export default function Attendance() {
   const { role, user } = useRole();
+  const { push } = useToast();
   const [loading, setLoading] = useState(true);
   const [teacherCourses, setTeacherCourses] = useState<TeacherAssignment[]>([]);
   const [allCourses, setAllCourses] = useState<Course[]>([]);
@@ -61,6 +67,7 @@ export default function Attendance() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [enrolledStudents, setEnrolledStudents] = useState<UserProfile[]>([]);
+  const [studentEnrollments, setStudentEnrollments] = useState<Array<Enrollment & { id: string }>>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [attendanceStats, setAttendanceStats] = useState<{
     total: number;
@@ -70,11 +77,38 @@ export default function Attendance() {
     excused: number;
   }>({ total: 0, present: 0, absent: 0, late: 0, excused: 0 });
   const [calendarData, setCalendarData] = useState<{ [dateString: string]: boolean }>({});
+  const [studentAttendanceMap, setStudentAttendanceMap] = useState<{ [studentId: string]: AttendanceRecord | null }>({});
 
   // Student-specific state
   const [studentAttendance, setStudentAttendance] = useState<AttendanceRecord[]>([]);
   const [attendancePercentage, setAttendancePercentage] = useState(0);
-  const [studentCalendarData, setStudentCalendarData] = useState<{ [dateString: string]: boolean }>({});
+  const [studentCalendarData, setStudentCalendarData] = useState<{ [dateString: string]: 'present' | 'absent' | 'late' | 'excused' }>({});
+
+  // Loading states for better UX
+  const [markingAttendance, setMarkingAttendance] = useState<{ [studentId: string]: boolean }>({});
+  const [bulkOperationLoading, setBulkOperationLoading] = useState(false);
+  const [calendarLoading, setCalendarLoading] = useState(false);
+
+  // Cache for student enrollment mapping to improve performance
+  const [enrollmentCache, setEnrollmentCache] = useState<{ [courseId: string]: { [studentId: string]: string } }>({});
+
+  // Student context
+  const [studentAttendanceId, setStudentAttendanceId] = useState<string | null>(null);
+
+  // Diagnostic state
+  const [diagnosticData, setDiagnosticData] = useState<{
+    attendance: any;
+    enrollment: any;
+    isRunning: boolean;
+  }>({ attendance: null, enrollment: null, isRunning: false });
+
+  // Fix state
+  const [fixData, setFixData] = useState<{
+    recordsToFix: any[];
+    incorrectIds: string[];
+    isRunning: boolean;
+    results: any;
+  }>({ recordsToFix: [], incorrectIds: [], isRunning: false, results: null });
 
   useEffect(() => {
     loadInitialData();
@@ -94,38 +128,53 @@ export default function Attendance() {
         // For teachers, we need to find their Firestore document ID
         let teacherAssignments: any[] = [];
         if (role === 'teacher' && user) {
-          // Find the teacher user document by email or UID
           const teacherUser = usersData.find(u =>
             u.email?.toLowerCase() === user.email?.toLowerCase() ||
             u.uid === user.uid
           );
 
           if (teacherUser?.id) {
-            console.log('Found teacher document ID:', teacherUser.id);
             teacherAssignments = await getTeacherAssignments(teacherUser.id);
-            console.log('Teacher assignments found:', teacherAssignments.length);
-          } else {
-            console.log('Teacher user document not found for email:', user.email);
           }
         }
-
-        console.log('Teacher assignments loaded:', teacherAssignments);
-        console.log('All courses loaded:', coursesData.length);
-        console.log('All users loaded:', usersData.length);
 
         setTeacherCourses(Array.isArray(teacherAssignments) ? teacherAssignments : []);
         setAllCourses(coursesData);
         setStudents(usersData.filter(u => u.role === 'student'));
       } else if (role === 'student' && user) {
-        // Load student courses and attendance data
-        const [coursesData, usersData] = await Promise.all([
+        console.log('Loading student data for user:', user.uid);
+
+        const [coursesData, usersData, allEnrollments] = await Promise.all([
           listCourses(),
-          getAllUsers()
+          getAllUsers(),
+          listEnrollments()
         ]);
 
         setAllCourses(coursesData);
         setStudents(usersData.filter(u => u.role === 'student'));
-        await loadStudentData();
+
+        const currentUserProfile = usersData.find(u =>
+          u.uid === user.uid || u.email?.toLowerCase() === user.email?.toLowerCase()
+        ) ?? null;
+
+        const candidateIds = new Set<string>();
+        if (currentUserProfile?.id) candidateIds.add(currentUserProfile.id);
+        if (currentUserProfile?.uid) candidateIds.add(currentUserProfile.uid);
+        if (currentUserProfile?.studentId) candidateIds.add(currentUserProfile.studentId);
+        if (user.uid) candidateIds.add(user.uid);
+        if (user.email) candidateIds.add(user.email.toLowerCase());
+
+        const enrollmentsForStudent = allEnrollments.filter(enrollment =>
+          candidateIds.has(enrollment.studentId)
+        );
+
+        setStudentEnrollments(enrollmentsForStudent);
+
+        const resolvedStudentId = enrollmentsForStudent[0]?.studentId ?? currentUserProfile?.id ?? currentUserProfile?.uid ?? user.uid ?? null;
+        setStudentAttendanceId(resolvedStudentId);
+
+        await updateStudentOverview(resolvedStudentId, enrollmentsForStudent);
+        setCurrentView('course-selection');
       }
     } catch (error) {
       console.error('Error loading initial data:', error);
@@ -134,15 +183,33 @@ export default function Attendance() {
     }
   };
 
-  const loadStudentData = async () => {
-    if (!user) return;
+  const updateStudentOverview = async (
+    attendanceId: string | null,
+    enrollments: Array<Enrollment & { id: string }>
+  ) => {
+    if (!attendanceId || enrollments.length === 0) {
+      setAttendancePercentage(100);
+      return;
+    }
 
     try {
-      // For students, we need to show courses they're enrolled in
-      // For now, show all courses (we'll filter by enrollment later)
-      setCurrentView('course-selection');
+      let totalPresent = 0;
+      let totalRecords = 0;
+
+      await Promise.all(
+        enrollments.map(async (enrollment) => {
+          if (!enrollment.courseId) return;
+          const records = await getStudentCourseAttendanceRecords(enrollment.studentId, enrollment.courseId);
+          totalRecords += records.length;
+          totalPresent += records.filter(record => record.status === 'present' || record.status === 'late').length;
+        })
+      );
+
+      const percentage = totalRecords > 0 ? Math.round((totalPresent / totalRecords) * 100) : 100;
+      setAttendancePercentage(percentage);
     } catch (error) {
-      console.error('Error loading student data:', error);
+      console.error('Error calculating student attendance summary:', error);
+      setAttendancePercentage(100);
     }
   };
 
@@ -151,39 +218,41 @@ export default function Attendance() {
     setCurrentView('calendar-view');
 
     try {
-      // Load enrolled students for this course
       const enrollments = await listEnrollments();
-      console.log('All enrollments:', enrollments);
-      console.log('Selected course ID:', course.id);
-
       const courseEnrollments = enrollments.filter(e => e.courseId === course.id);
-      console.log('Course enrollments:', courseEnrollments);
 
-      const enrolledStudentIds = courseEnrollments.map(e => e.studentId);
-      console.log('Enrolled student IDs:', enrolledStudentIds);
+      const enrolledStudentIds = new Set(courseEnrollments.map(e => e.studentId));
 
-      console.log('All students:', students.map(s => ({ id: s.id, uid: s.uid, name: s.name })));
-      console.log('First few students details:', students.slice(0, 3).map(s => ({ id: s.id, uid: s.uid, name: s.name, email: s.email })));
+      const matchedStudents = students.filter(student => {
+        if (!student.id && !student.uid && !student.email) {
+          return false;
+        }
+        return (
+          (student.id && enrolledStudentIds.has(student.id)) ||
+          (student.uid && enrolledStudentIds.has(student.uid)) ||
+          (student.email && enrolledStudentIds.has(student.email))
+        );
+      });
 
-      // Try matching by Firestore document ID first (most reliable)
-      const enrolledStudentsById = students.filter(s => s.id && enrolledStudentIds.includes(s.id));
-      console.log('Enrolled students by ID:', enrolledStudentsById.length, enrolledStudentsById.map(s => ({ id: s.id, name: s.name })));
+      setEnrolledStudents(matchedStudents);
 
-      // Also try by uid if available
-      const enrolledStudentsByUid = students.filter(s => s.uid && enrolledStudentIds.includes(s.uid));
-      console.log('Enrolled students by UID:', enrolledStudentsByUid.length, enrolledStudentsByUid.map(s => ({ uid: s.uid, name: s.name })));
-
-      // Combine results (prefer ID matches)
-      const enrolledStudents = [...enrolledStudentsById];
-      enrolledStudentsByUid.forEach(student => {
-        if (!enrolledStudents.find(s => s.id === student.id)) {
-          enrolledStudents.push(student);
+      const courseMapping: Record<string, string> = {};
+      matchedStudents.forEach(student => {
+        if (!student.id) return;
+        const enrollment = courseEnrollments.find(e =>
+          e.studentId === student.id ||
+          e.studentId === student.uid ||
+          e.studentId === student.email
+        );
+        if (enrollment) {
+          courseMapping[student.id] = enrollment.studentId;
         }
       });
 
-      console.log('Final enrolled students found:', enrolledStudents.length, enrolledStudents.map(s => ({ id: s.id, uid: s.uid, name: s.name })));
-
-      setEnrolledStudents(enrolledStudents);
+      setEnrollmentCache(prev => ({
+        ...prev,
+        [course.id!]: courseMapping
+      }));
 
       // Load calendar data for the course
       const attendanceDates = await getCourseAttendanceDates(course.id!);
@@ -206,10 +275,14 @@ export default function Attendance() {
       // Load attendance records for this date
       const records = await getAttendanceRecordsForCourseDate(selectedCourse.id!, dateString);
       setAttendanceRecords(records);
+      console.log('Loaded', records.length, 'attendance records for date', dateString);
+
+      await buildStudentAttendanceMap();
 
       // Calculate stats for this date
       const stats = await getCourseDateAttendanceStats(selectedCourse.id!, dateString);
       setAttendanceStats(stats);
+      console.log('Calculated attendance stats for date', dateString, ':', stats);
 
     } catch (error) {
       console.error('Error loading attendance data for date:', error);
@@ -217,66 +290,212 @@ export default function Attendance() {
   };
 
   const handleMarkAttendance = async (studentId: string, status: AttendanceRecord['status']) => {
-    if (!selectedCourse?.id) return;
+    if (!selectedCourse?.id || !studentId) return;
 
-    // Validate studentId
-    if (!studentId) {
-      console.error('Student ID is undefined');
-      alert('Student ID is missing. Please refresh the page and try again.');
-      return;
-    }
-
-    console.log('Student ID being used:', studentId);
-    console.log('Selected course ID:', selectedCourse.id);
-
-    const dateString = formatDateForStorage(selectedDate);
+    // Set loading state for this student
+    setMarkingAttendance(prev => ({ ...prev, [studentId]: true }));
 
     try {
-      console.log('Marking attendance:', { courseId: selectedCourse.id, studentId, date: dateString, status });
-      await createAttendanceRecord(selectedCourse.id, studentId, dateString, status);
+    const dateString = formatDateForStorage(selectedDate);
+      const student = enrolledStudents.find(s => s.id === studentId);
 
-      // Reload attendance records and stats
-      const records = await getAttendanceRecordsForCourseDate(selectedCourse.id, dateString);
-      setAttendanceRecords(records);
+      // Use cached enrollment ID if available, otherwise find it
+      let attendanceStudentId = enrollmentCache[selectedCourse.id]?.[studentId];
 
-      const stats = await getCourseDateAttendanceStats(selectedCourse.id, dateString);
-      setAttendanceStats(stats);
+      if (!attendanceStudentId) {
+        // Find enrollment and cache it
+        const enrollments = await listEnrollments();
+        const courseEnrollments = enrollments.filter(e => e.courseId === selectedCourse.id);
 
-      // Update calendar data
-      const calendarData = await getCourseAttendanceDates(selectedCourse.id);
-      setCalendarData(calendarData);
+        const studentEnrollment = courseEnrollments.find(e =>
+          e.studentId === studentId ||
+          (student && e.studentId === student.uid) ||
+          (student && e.studentId === student.email)
+        );
 
-      console.log('Attendance marked successfully');
+        if (!studentEnrollment) {
+          throw new Error(`No enrollment found for student ${student?.name || 'Unknown'}`);
+        }
+
+        attendanceStudentId = studentEnrollment.studentId;
+
+        // Cache the enrollment mapping
+        setEnrollmentCache(prev => ({
+          ...prev,
+          [selectedCourse.id]: {
+            ...prev[selectedCourse.id],
+            [studentId!]: attendanceStudentId
+          }
+        }));
+      } else {
+        console.log('- Using cached attendance studentId:', attendanceStudentId);
+      }
+
+      // Optimistically update UI
+        const optimisticRecord = {
+          id: `temp-${Date.now()}`,
+          courseId: selectedCourse.id,
+          studentId: studentId,
+          date: dateString,
+          status: status,
+          timestamp: Date.now(),
+          markedBy: 'optimistic'
+        };
+
+        setStudentAttendanceMap(prev => ({
+          ...prev,
+          [studentId]: optimisticRecord
+        }));
+
+      // Create/update attendance record
+      await createAttendanceRecord(selectedCourse.id, attendanceStudentId, dateString, status);
+
+      // Update calendar data immediately
+      setCalendarData(prev => ({ ...prev, [dateString]: true }));
+
+      // Update stats optimistically
+      const currentRecord = attendanceRecords.find(r => r.studentId === attendanceStudentId);
+      const newStats = { ...attendanceStats };
+
+      if (currentRecord) {
+        // Decrement old status count
+        if (currentRecord.status === 'present') newStats.present--;
+        else if (currentRecord.status === 'absent') newStats.absent--;
+        else if (currentRecord.status === 'late') newStats.late--;
+        else if (currentRecord.status === 'excused') newStats.excused--;
+      } else {
+        newStats.total++;
+      }
+
+      // Increment new status count
+      if (status === 'present') newStats.present++;
+      else if (status === 'absent') newStats.absent++;
+      else if (status === 'late') newStats.late++;
+      else if (status === 'excused') newStats.excused++;
+
+      setAttendanceStats(newStats);
+
+      // Show success feedback
+      push({
+        title: "Attendance Marked",
+        description: `${student?.name || 'Student'} marked as ${status}`,
+        variant: "success"
+      });
+
     } catch (error) {
       console.error('Error marking attendance:', error);
-      alert('Failed to mark attendance. Please try again.');
+
+      // Revert optimistic update on error
+      setStudentAttendanceMap(prev => ({
+        ...prev,
+        [studentId]: attendanceRecords.find(r => r.studentId === enrollmentCache[selectedCourse.id]?.[studentId]) || null
+      }));
+
+      push({
+        title: "Error",
+        description: `Failed to mark attendance: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        variant: "error"
+      });
+    } finally {
+      setMarkingAttendance(prev => ({ ...prev, [studentId]: false }));
     }
   };
 
+  // Enhanced bulk attendance marking with better performance
   const handleBulkMarkPresent = async () => {
     if (!selectedCourse?.id || enrolledStudents.length === 0) return;
 
+    setBulkOperationLoading(true);
     const dateString = formatDateForStorage(selectedDate);
 
     try {
-      const studentIds = enrolledStudents.map(s => s.id).filter(Boolean) as string[];
-      await bulkCreateAttendanceRecords(selectedCourse.id, dateString, studentIds, 'present');
+      const { auth } = await import('../firebase');
+      if (!auth.currentUser) {
+        throw new Error('User is not authenticated');
+      }
 
-      // Reload data
+      // Prepare bulk attendance updates using cached enrollment data
+      const attendanceUpdates: Array<{ studentId: string; status: AttendanceRecord['status'] }> = [];
+
+      for (const student of enrolledStudents) {
+        if (!student.id) continue;
+
+        // Use cached enrollment ID or find it
+        let attendanceStudentId = enrollmentCache[selectedCourse.id]?.[student.id];
+
+        if (!attendanceStudentId) {
+          const enrollments = await listEnrollments();
+          const courseEnrollments = enrollments.filter(e => e.courseId === selectedCourse.id);
+        const studentEnrollment = courseEnrollments.find(e =>
+          e.studentId === student.id ||
+          e.studentId === student.uid ||
+          e.studentId === student.email
+        );
+
+        if (studentEnrollment) {
+            attendanceStudentId = studentEnrollment.studentId;
+            // Cache for future use
+            setEnrollmentCache(prev => ({
+              ...prev,
+              [selectedCourse.id]: {
+                ...prev[selectedCourse.id],
+                [student.id!]: attendanceStudentId
+              }
+            }));
+          }
+        }
+
+        if (attendanceStudentId) {
+          attendanceUpdates.push({ studentId: attendanceStudentId, status: 'present' });
+        }
+      }
+
+      if (attendanceUpdates.length === 0) {
+        throw new Error('No valid student enrollments found');
+      }
+
+      // Use optimized bulk operation
+      const result = await quickMarkAttendanceBulk(selectedCourse.id, dateString, attendanceUpdates);
+
+      if (result.failed > 0) {
+        push({
+          title: "Partial Success",
+          description: `Marked ${result.success} students present, ${result.failed} failed`,
+          variant: "default"
+        });
+      } else {
+        push({
+          title: "Bulk Attendance Marked",
+          description: `Successfully marked ${result.success} students as present`,
+          variant: "success"
+        });
+      }
+
+      // Update calendar and stats
+      setCalendarData(prev => ({ ...prev, [dateString]: true }));
+      setAttendanceStats(prev => ({
+        ...prev,
+        total: enrolledStudents.length,
+        present: result.success,
+        absent: enrolledStudents.length - result.success,
+        late: 0,
+        excused: 0
+      }));
+
+      // Refresh attendance records
       const records = await getAttendanceRecordsForCourseDate(selectedCourse.id, dateString);
       setAttendanceRecords(records);
+      await buildStudentAttendanceMap();
 
-      const stats = await getCourseDateAttendanceStats(selectedCourse.id, dateString);
-      setAttendanceStats(stats);
-
-      // Update calendar data
-      const calendarData = await getCourseAttendanceDates(selectedCourse.id);
-      setCalendarData(calendarData);
-
-      alert('All students marked as present!');
     } catch (error) {
       console.error('Error bulk marking attendance:', error);
-      alert('Failed to bulk mark attendance. Please try again.');
+      push({
+        title: "Bulk Operation Failed",
+        description: error instanceof Error ? error.message : 'Unknown error occurred',
+        variant: "error"
+      });
+    } finally {
+      setBulkOperationLoading(false);
     }
   };
 
@@ -288,10 +507,241 @@ export default function Attendance() {
     setCalendarData({});
   };
 
-  const handleBackToCalendar = () => {
+  const handleBackToCalendar = async () => {
+    // Reload calendar data from database to ensure we have latest attendance records
+    if (selectedCourse?.id) {
+      try {
+        const attendanceDates = await getCourseAttendanceDates(selectedCourse.id);
+        setCalendarData(attendanceDates);
+      } catch (error) {
+        console.error('Error reloading calendar data:', error);
+      }
+    }
+
     setCurrentView('calendar-view');
     setAttendanceRecords([]);
     setAttendanceStats({ total: 0, present: 0, absent: 0, late: 0, excused: 0 });
+  };
+
+  // Diagnostic function to identify attendance data issues
+  const runAttendanceDiagnostics = async () => {
+    if (!selectedCourse?.id) {
+      push({
+        title: "Error",
+        description: "Please select a course first",
+        variant: "error"
+      });
+      return;
+    }
+
+    setDiagnosticData(prev => ({ ...prev, isRunning: true }));
+
+    try {
+      console.log('🔍 Running attendance diagnostics for course:', selectedCourse.id);
+
+      const [attendanceData, enrollmentData] = await Promise.all([
+        diagnoseAttendanceData(selectedCourse.id),
+        diagnoseEnrollmentData(selectedCourse.id)
+      ]);
+
+      setDiagnosticData({
+        attendance: attendanceData,
+        enrollment: enrollmentData,
+        isRunning: false
+      });
+
+      console.log('📊 Diagnostic Results:');
+      console.log('Attendance Records:', attendanceData.totalRecords);
+      console.log('Unique Student IDs in Attendance:', attendanceData.uniqueStudentIds);
+      console.log('Enrollments:', enrollmentData.totalEnrollments);
+      console.log('Unique Student IDs in Enrollments:', enrollmentData.uniqueStudentIds);
+
+      // Check for ID mismatches
+      const attendanceIds = new Set(attendanceData.uniqueStudentIds);
+      const enrollmentIds = new Set(enrollmentData.uniqueStudentIds);
+      const missingInAttendance = enrollmentData.uniqueStudentIds.filter(id => !attendanceIds.has(id));
+      const extraInAttendance = attendanceData.uniqueStudentIds.filter(id => !enrollmentIds.has(id));
+
+      if (missingInAttendance.length > 0 || extraInAttendance.length > 0) {
+        console.warn('⚠️ ID MISMATCH DETECTED!');
+        console.warn('Students enrolled but no attendance records:', missingInAttendance);
+        console.warn('Attendance records for unenrolled students:', extraInAttendance);
+
+        push({
+          title: "ID Mismatch Detected",
+          description: `${missingInAttendance.length} enrolled students missing attendance, ${extraInAttendance.length} extra records`,
+          variant: "default"
+        });
+      } else {
+        push({
+          title: "Diagnostics Complete",
+          description: "No ID mismatches found",
+          variant: "success"
+        });
+      }
+
+    } catch (error) {
+      console.error('Error running diagnostics:', error);
+      setDiagnosticData(prev => ({ ...prev, isRunning: false }));
+      push({
+        title: "Diagnostic Error",
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: "error"
+      });
+    }
+  };
+
+  // Function to analyze and fix attendance ID issues
+  const analyzeAndFixAttendanceIssues = async () => {
+    if (!selectedCourse?.id) {
+      push({
+        title: "Error",
+        description: "Please select a course first",
+        variant: "error"
+      });
+      return;
+    }
+
+    setFixData(prev => ({ ...prev, isRunning: true }));
+
+    try {
+      console.log('🔧 Analyzing attendance issues for course:', selectedCourse.id);
+
+      // Get all enrolled students
+      const enrollments = await listEnrollments();
+      const courseEnrollments = enrollments.filter(e => e.courseId === selectedCourse.id);
+      const enrolledStudentIds = courseEnrollments.map(e => e.studentId);
+
+      console.log('Enrolled student IDs:', enrolledStudentIds);
+
+      // Get all users to find their actual IDs
+      const usersData = await getAllUsers();
+
+      // Create mapping from enrollment IDs to actual user IDs
+      const idMapping: { [oldId: string]: string } = {};
+
+      for (const enrollment of courseEnrollments) {
+        const enrollmentStudentId = enrollment.studentId;
+
+        // Find the corresponding user
+        const user = usersData.find(u =>
+          u.uid === enrollmentStudentId ||
+          u.email === enrollmentStudentId ||
+          u.id === enrollmentStudentId ||
+          u.studentId === enrollmentStudentId
+        );
+
+        if (user) {
+          // The user should be using their uid, email, or profile id
+          const correctIds = [user.uid, user.email, user.id].filter(id => id);
+
+          // If the enrollment ID is not one of the correct IDs, map it
+          if (!correctIds.includes(enrollmentStudentId)) {
+            // Use the first available correct ID
+            const correctId = correctIds[0];
+            if (correctId) {
+              idMapping[enrollmentStudentId] = correctId;
+              console.log(`Mapping ${enrollmentStudentId} -> ${correctId} (${user.name})`);
+            }
+          }
+        }
+      }
+
+      console.log('ID mapping to apply:', idMapping);
+
+      if (Object.keys(idMapping).length === 0) {
+        push({
+          title: "No Issues Found",
+          description: "All attendance records appear to use correct student IDs",
+          variant: "success"
+        });
+        setFixData(prev => ({ ...prev, isRunning: false, recordsToFix: [], incorrectIds: [] }));
+        return;
+      }
+
+      // Get records that need fixing
+      const { recordsToFix, incorrectIds } = await getAttendanceRecordsNeedingFix(selectedCourse.id, enrolledStudentIds);
+      setFixData(prev => ({
+        ...prev,
+        recordsToFix,
+        incorrectIds,
+        isRunning: false
+      }));
+
+      console.log(`Found ${recordsToFix.length} records needing fixes`);
+      console.log('Incorrect IDs:', incorrectIds);
+
+      // Automatically apply the fix
+      console.log('Applying automatic fix...');
+      const results = await fixAttendanceStudentIds(selectedCourse.id, idMapping);
+
+      setFixData(prev => ({ ...prev, results }));
+
+      if (results.updated > 0) {
+        push({
+          title: "Fix Applied Successfully",
+          description: `Updated ${results.updated} attendance records`,
+          variant: "success"
+        });
+
+        // Re-run diagnostics to show the improvement
+        await runAttendanceDiagnostics();
+      } else if (results.failed > 0) {
+        push({
+          title: "Fix Failed",
+          description: `Failed to update ${results.failed} records`,
+          variant: "error"
+        });
+      }
+
+    } catch (error) {
+      console.error('Error analyzing/fixing attendance issues:', error);
+      setFixData(prev => ({ ...prev, isRunning: false }));
+      push({
+        title: "Fix Error",
+        description: error instanceof Error ? error.message : 'Unknown error occurred',
+        variant: "error"
+      });
+    }
+  };
+
+  // Build mapping from student IDs to their attendance records
+  const buildStudentAttendanceMap = async () => {
+    if (!selectedCourse?.id) return;
+
+    const enrollments = await listEnrollments();
+    const courseEnrollments = enrollments.filter(e => e.courseId === selectedCourse.id);
+
+    const mapping: { [studentId: string]: AttendanceRecord | null } = {};
+
+    console.log('Building attendance mapping for', enrolledStudents.length, 'students');
+    console.log('Course enrollments:', courseEnrollments.map(e => ({ studentId: e.studentId })));
+    console.log('Attendance records:', attendanceRecords.map(r => ({ studentId: r.studentId, status: r.status })));
+
+    for (const student of enrolledStudents) {
+      if (!student.id) continue; // Skip students without IDs
+
+      console.log('Processing student:', { id: student.id, uid: student.uid, email: student.email, name: student.name });
+
+      // Find the enrollment for this student to get the correct studentId used in attendance records
+      const studentEnrollment = courseEnrollments.find(e =>
+        e.studentId === student.id ||
+        e.studentId === student.uid ||
+        e.studentId === student.email
+      );
+
+      const correctStudentId = studentEnrollment?.studentId || student.id;
+      console.log('Enrollment found for student:', studentEnrollment);
+      console.log('Using correctStudentId:', correctStudentId);
+
+      const record = attendanceRecords.find(r => r.studentId === correctStudentId);
+      console.log('Found attendance record:', record);
+
+      mapping[student.id] = record || null;
+    }
+
+    setStudentAttendanceMap(mapping);
+    console.log('Final student attendance mapping:', mapping);
   };
 
   const handleViewStudentHistory = async (course: Course) => {
@@ -301,20 +751,18 @@ export default function Attendance() {
     setCurrentView('student-history');
 
     try {
+      const enrollmentForCourse = studentEnrollments.find(enrollment => enrollment.courseId === course.id);
+      const attendanceId = enrollmentForCourse?.studentId ?? studentAttendanceId ?? user.uid;
+
       const [records, percentage, calendarData] = await Promise.all([
-        getStudentCourseAttendanceRecords(user.uid, course.id!),
-        calculateStudentCourseAttendancePercentage(user.uid, course.id!),
-        getStudentCourseAttendanceCalendar(user.uid, course.id!)
+        getStudentCourseAttendanceRecords(attendanceId, course.id!),
+        calculateStudentCourseAttendancePercentage(attendanceId, course.id!),
+        getStudentCourseAttendanceCalendar(attendanceId, course.id!)
       ]);
 
       setStudentAttendance(records);
       setAttendancePercentage(percentage);
-      // Convert status-based calendar data to boolean values
-      const booleanCalendarData: { [dateString: string]: boolean } = {};
-      Object.keys(calendarData).forEach(date => {
-        booleanCalendarData[date] = true; // Any attendance record means attendance was taken
-      });
-      setStudentCalendarData(booleanCalendarData);
+      setStudentCalendarData(calendarData);
     } catch (error) {
       console.error('Error loading student attendance history:', error);
     }
@@ -385,12 +833,21 @@ export default function Attendance() {
             return (course.title || '').toLowerCase().includes(query) ||
                    (course.code || '').toLowerCase().includes(query);
           }))
-    : allCourses.filter(course => {
-        if (!searchQuery.trim()) return true;
-        const query = searchQuery.toLowerCase();
-        return (course.title || '').toLowerCase().includes(query) ||
-               (course.code || '').toLowerCase().includes(query);
-      });
+    : allCourses
+        .filter(course => {
+          // First filter by student enrollments
+          if (!course.id) return false;
+
+          const isEnrolled = studentEnrollments.some(enrollment => enrollment.courseId === course.id);
+          return isEnrolled;
+        })
+        .filter(course => {
+          // Then filter by search query
+          if (!searchQuery.trim()) return true;
+          const query = searchQuery.toLowerCase();
+          return (course.title || '').toLowerCase().includes(query) ||
+                 (course.code || '').toLowerCase().includes(query);
+        });
 
   if (loading) {
     return (
@@ -445,6 +902,33 @@ export default function Attendance() {
                   <div className="text-sm text-gray-600">Enrolled Students</div>
                   <div className="font-medium">{enrolledStudents.length}</div>
                 </div>
+
+                {/* Attendance Summary for Selected Date */}
+                {attendanceStats.total > 0 && (
+                  <div className="mt-4 pt-4 border-t border-gray-200">
+                    <div className="text-sm font-medium text-gray-700 mb-2">
+                      {selectedDate.toLocaleDateString()} Attendance:
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="flex items-center gap-1">
+                        <div className="w-3 h-3 bg-green-100 border border-green-300 rounded"></div>
+                        <span>Present: {attendanceStats.present}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <div className="w-3 h-3 bg-red-100 border border-red-300 rounded"></div>
+                        <span>Absent: {attendanceStats.absent}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <div className="w-3 h-3 bg-yellow-100 border border-yellow-300 rounded"></div>
+                        <span>Late: {attendanceStats.late}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <div className="w-3 h-3 bg-blue-100 border border-blue-300 rounded"></div>
+                        <span>Excused: {attendanceStats.excused}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -479,48 +963,267 @@ export default function Attendance() {
               { label: selectedDate.toLocaleDateString() }
             ]}
             actions={
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    setCalendarLoading(true);
+                    try {
+                      const dateString = formatDateForStorage(selectedDate);
+                      const [records, stats] = await Promise.all([
+                        getAttendanceRecordsForCourseDate(selectedCourse.id!, dateString),
+                        getCourseDateAttendanceStats(selectedCourse.id!, dateString)
+                      ]);
+
+                      setAttendanceRecords(records);
+                      setAttendanceStats(stats);
+                      await buildStudentAttendanceMap();
+
+                      push({
+                        title: "Refreshed",
+                        description: "Attendance data updated",
+                        variant: "success"
+                      });
+                    } catch (error) {
+                      console.error('Error refreshing attendance data:', error);
+                      push({
+                        title: "Refresh Failed",
+                        description: "Could not update attendance data",
+                        variant: "error"
+                      });
+                    } finally {
+                      setCalendarLoading(false);
+                    }
+                  }}
+                  disabled={calendarLoading}
+                  className="flex items-center gap-2"
+                >
+                  {calendarLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                  Refresh
+                </Button>
+                <Button
+                  onClick={runAttendanceDiagnostics}
+                  disabled={diagnosticData.isRunning}
+                  variant="outline"
+                  size="sm"
+                  className="flex items-center gap-2"
+                >
+                  {diagnosticData.isRunning ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Search className="h-4 w-4" />
+                  )}
+                  Diagnose
+                </Button>
               <Button variant="outline" onClick={handleBackToCalendar}>
                 <ChevronLeft className="h-4 w-4 mr-2" />
                 Back to Calendar
               </Button>
+              </div>
             }
           />
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Diagnostic Results */}
+          {diagnosticData.attendance && diagnosticData.enrollment && (
+            <Card className="mb-6">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <AlertCircle className="h-5 w-5 text-orange-600" />
+                  Attendance Diagnostic Results
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <h4 className="font-semibold mb-2">Attendance Records</h4>
+                    <div className="space-y-1 text-sm">
+                      <div>Total Records: <span className="font-medium">{diagnosticData.attendance.totalRecords}</span></div>
+                      <div>Unique Student IDs: <span className="font-medium">{diagnosticData.attendance.uniqueStudentIds.length}</span></div>
+                      {diagnosticData.attendance.issues.length > 0 && (
+                        <div className="text-red-600">Issues: {diagnosticData.attendance.issues.length}</div>
+                      )}
+                    </div>
+                    {diagnosticData.attendance.sampleRecords.length > 0 && (
+                      <div className="mt-3">
+                        <div className="text-xs text-gray-600 mb-1">Sample Student IDs:</div>
+                        <div className="text-xs font-mono bg-gray-100 p-2 rounded max-h-20 overflow-y-auto">
+                          {diagnosticData.attendance.sampleRecords.slice(0, 5).map((record: any) => record.studentId).join(', ')}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <h4 className="font-semibold mb-2">Enrollments</h4>
+                    <div className="space-y-1 text-sm">
+                      <div>Total Enrollments: <span className="font-medium">{diagnosticData.enrollment.totalEnrollments}</span></div>
+                      <div>Unique Student IDs: <span className="font-medium">{diagnosticData.enrollment.uniqueStudentIds.length}</span></div>
+                      {diagnosticData.enrollment.issues.length > 0 && (
+                        <div className="text-red-600">Issues: {diagnosticData.enrollment.issues.length}</div>
+                      )}
+                    </div>
+                    {diagnosticData.enrollment.sampleEnrollments.length > 0 && (
+                      <div className="mt-3">
+                        <div className="text-xs text-gray-600 mb-1">Sample Student IDs:</div>
+                        <div className="text-xs font-mono bg-gray-100 p-2 rounded max-h-20 overflow-y-auto">
+                          {diagnosticData.enrollment.sampleEnrollments.slice(0, 5).map((enrollment: any) => enrollment.studentId).join(', ')}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-4 flex gap-2">
+                  <Button
+                    onClick={analyzeAndFixAttendanceIssues}
+                    disabled={fixData.isRunning}
+                    variant="outline"
+                    size="sm"
+                    className="flex items-center gap-2"
+                  >
+                    {fixData.isRunning ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <AlertCircle className="h-4 w-4" />
+                    )}
+                    Auto-Fix ID Issues
+                  </Button>
+                  {fixData.results && (
+                    <div className="text-sm text-green-600 flex items-center">
+                      ✅ Fixed {fixData.results.updated} records
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            {/* Quick Actions */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Zap className="h-5 w-5 text-blue-600" />
+                  Quick Actions
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Button
+                  onClick={handleBulkMarkPresent}
+                  className="w-full"
+                  variant="outline"
+                  disabled={bulkOperationLoading}
+                  size="sm"
+                >
+                  {bulkOperationLoading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      <CheckSquare className="h-4 w-4 mr-2" />
+                      Mark All Present
+                    </>
+                  )}
+                </Button>
+
+                <Button
+                  onClick={async () => {
+                    if (!selectedCourse?.id) return;
+                    const dateString = formatDateForStorage(selectedDate);
+                    const summary = await getAttendanceSummary(selectedCourse.id, dateString);
+                    push({
+                      title: "Attendance Summary",
+                      description: `${summary.present} present, ${summary.absent} absent, ${summary.late} late, ${summary.excused} excused`,
+                      variant: "default"
+                    });
+                  }}
+                  className="w-full"
+                  variant="ghost"
+                  size="sm"
+                >
+                  <BarChart3 className="h-4 w-4 mr-2" />
+                  Get Summary
+                </Button>
+
+                <Button
+                  onClick={async () => {
+                    // Export attendance data for the day
+                    const dateString = formatDateForStorage(selectedDate);
+                    const records = await getAttendanceRecordsForCourseDate(selectedCourse!.id!, dateString);
+                    const csvContent = [
+                      ['Student Name', 'Email', 'Status', 'Time'],
+                      ...records.map(record => [
+                        enrolledStudents.find(s => s.id === record.studentId)?.name || 'Unknown',
+                        enrolledStudents.find(s => s.id === record.studentId)?.email || '',
+                        record.status,
+                        new Date(record.timestamp).toLocaleString()
+                      ])
+                    ].map(row => row.join(',')).join('\n');
+
+                    const blob = new Blob([csvContent], { type: 'text/csv' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `attendance-${selectedCourse!.title}-${dateString}.csv`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+
+                    push({
+                      title: "Export Complete",
+                      description: "Attendance data exported successfully",
+                      variant: "success"
+                    });
+                  }}
+                  className="w-full"
+                  variant="ghost"
+                  size="sm"
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Export CSV
+                </Button>
+              </CardContent>
+            </Card>
+
             {/* Attendance Stats */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Daily Statistics</CardTitle>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <BarChart3 className="h-5 w-5 text-green-600" />
+                  Daily Statistics
+                </CardTitle>
                 <p className="text-sm text-gray-600">{selectedDate.toLocaleDateString()}</p>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="text-center">
+                  <div className="text-center p-3 bg-blue-50 rounded-lg">
                     <div className="text-2xl font-bold text-blue-600">{attendanceStats.total}</div>
-                    <div className="text-sm text-gray-600">Total Students</div>
+                    <div className="text-sm text-gray-600">Total</div>
                   </div>
-                  <div className="text-center">
+                  <div className="text-center p-3 bg-green-50 rounded-lg">
                     <div className="text-2xl font-bold text-green-600">{attendanceStats.present}</div>
                     <div className="text-sm text-gray-600">Present</div>
                   </div>
-                  <div className="text-center">
+                  <div className="text-center p-3 bg-red-50 rounded-lg">
                     <div className="text-2xl font-bold text-red-600">{attendanceStats.absent}</div>
                     <div className="text-sm text-gray-600">Absent</div>
                   </div>
-                  <div className="text-center">
+                  <div className="text-center p-3 bg-yellow-50 rounded-lg">
                     <div className="text-2xl font-bold text-yellow-600">{attendanceStats.late}</div>
                     <div className="text-sm text-gray-600">Late</div>
                   </div>
                 </div>
 
-                <Button
-                  onClick={handleBulkMarkPresent}
-                  className="w-full"
-                  variant="outline"
-                >
-                  <CheckCircle className="h-4 w-4 mr-2" />
-                  Mark All Present
-                </Button>
+                <div className="text-center p-2 bg-blue-50 rounded-lg">
+                  <div className="text-lg font-bold text-blue-600">{attendanceStats.excused}</div>
+                  <div className="text-sm text-gray-600">Excused</div>
+                </div>
+
+
               </CardContent>
             </Card>
 
@@ -545,13 +1248,29 @@ export default function Attendance() {
                       `${student.name} ${student.email}`.toLowerCase().includes(searchQuery.toLowerCase())
                     )
                     .map((student) => {
-                      const record = attendanceRecords.find(r => r.studentId === student.id);
+                      const record = student.id ? studentAttendanceMap[student.id] : null;
 
                       return (
-                        <div key={student.id} className="flex items-center justify-between p-3 border rounded-lg">
+                        <div key={student.id} className={`flex items-center justify-between p-3 border rounded-lg transition-all duration-200 ${
+                          markingAttendance[student.id!] ? 'bg-blue-50 border-blue-200' :
+                          record ? 'hover:bg-gray-50' : 'hover:bg-gray-50'
+                        }`}>
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">
+                              <span className="text-sm font-medium text-gray-600">
+                                {student.name.charAt(0).toUpperCase()}
+                              </span>
+                            </div>
                           <div>
                             <div className="font-medium">{student.name}</div>
                             <div className="text-sm text-gray-600">{student.email}</div>
+                              {markingAttendance[student.id!] && (
+                                <div className="text-xs text-blue-600 flex items-center gap-1 mt-1">
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                  Processing...
+                                </div>
+                              )}
+                            </div>
                           </div>
                           <div className="flex gap-2">
                             {record ? (
@@ -559,8 +1278,9 @@ export default function Attendance() {
                                 {getAttendanceStatusBadge(record.status)}
                                 <Button
                                   size="sm"
-                                  variant="outline"
+                                  variant="ghost"
                                   onClick={() => handleMarkAttendance(student.id!, 'present')}
+                                  className="text-gray-500 hover:text-gray-700"
                                 >
                                   <Edit2 className="h-3 w-3" />
                                 </Button>
@@ -571,25 +1291,57 @@ export default function Attendance() {
                                   size="sm"
                                   variant="outline"
                                   onClick={() => handleMarkAttendance(student.id!, 'present')}
-                                  className="text-green-600 hover:text-green-700"
+                                  className="text-green-600 hover:text-green-700 hover:bg-green-50 border-green-200"
+                                  disabled={markingAttendance[student.id!]}
+                                  title="Mark Present"
                                 >
+                                  {markingAttendance[student.id!] ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
                                   <CheckCircle className="h-3 w-3" />
+                                  )}
                                 </Button>
                                 <Button
                                   size="sm"
                                   variant="outline"
                                   onClick={() => handleMarkAttendance(student.id!, 'absent')}
-                                  className="text-red-600 hover:text-red-700"
+                                  className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                                  disabled={markingAttendance[student.id!]}
+                                  title="Mark Absent"
                                 >
+                                  {markingAttendance[student.id!] ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
                                   <XCircle className="h-3 w-3" />
+                                  )}
                                 </Button>
                                 <Button
                                   size="sm"
                                   variant="outline"
                                   onClick={() => handleMarkAttendance(student.id!, 'late')}
-                                  className="text-yellow-600 hover:text-yellow-700"
+                                  className="text-yellow-600 hover:text-yellow-700 hover:bg-yellow-50 border-yellow-200"
+                                  disabled={markingAttendance[student.id!]}
+                                  title="Mark Late"
                                 >
+                                  {markingAttendance[student.id!] ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
                                   <Clock className="h-3 w-3" />
+                                  )}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleMarkAttendance(student.id!, 'excused')}
+                                  className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 border-blue-200"
+                                  disabled={markingAttendance[student.id!]}
+                                  title="Mark Excused"
+                                >
+                                  {markingAttendance[student.id!] ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <ShieldCheck className="h-3 w-3" />
+                                  )}
                                 </Button>
                               </div>
                             )}
@@ -655,9 +1407,9 @@ export default function Attendance() {
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-2xl font-bold">
-                    {filteredCourses.reduce((total, course) => total + (course?.capacity || 0), 0)}
+                    {filteredCourses.length}
                   </div>
-                  <div className="text-sm text-gray-600">Total Capacity</div>
+                  <div className="text-sm text-gray-600">Total Courses</div>
                 </div>
                 <FileText className="h-8 w-8 text-purple-600" />
               </div>
@@ -787,8 +1539,6 @@ export default function Attendance() {
             <div className="space-y-4">
               {filteredCourses.map((course) => {
                 if (!course) return null;
-                const courseEnrollments = allCourses.find(c => c.id === course.id);
-                const enrollmentCount = courseEnrollments ? course.capacity : 0; // This would need to be calculated properly
 
                 return (
                   <div key={course.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 transition-colors">
@@ -803,7 +1553,7 @@ export default function Attendance() {
                         </div>
                       </div>
                       <div className="text-sm text-gray-600 mt-2">
-                        Instructor: {course.instructor} • Capacity: {course.capacity}
+                        Instructor: {course.instructor}
                       </div>
                     </div>
                     <div className="flex gap-2">
@@ -902,8 +1652,8 @@ export default function Attendance() {
                 <CalendarComponent
                   selectedDate={selectedDate}
                   onDateSelect={() => {}} // Read-only for students
-                  attendanceData={studentCalendarData}
-                  showAttendanceStats={false}
+                  attendanceStatusData={studentCalendarData}
+                  showAttendanceStats={true}
                 />
               </CardContent>
             </Card>
@@ -1015,7 +1765,7 @@ export default function Attendance() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => handleViewStudentHistory(course)}
+                        onClick={() => handleSelectCourse(course)}
                       >
                         <Calendar className="h-4 w-4 mr-2" />
                         View Calendar
@@ -1047,6 +1797,122 @@ export default function Attendance() {
     );
   }
 
+  // Student History/Details View
+  if (role === 'student' && user && currentView === 'student-history' && selectedCourse) {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title={`Attendance Details - ${selectedCourse.title}`}
+          breadcrumb={[
+            { label: 'Attendance', to: '/attendance' },
+            { label: selectedCourse.title },
+            { label: 'Details' }
+          ]}
+          actions={
+            <Button variant="outline" onClick={handleBackToCourses}>
+              <ChevronLeft className="h-4 w-4 mr-2" />
+              Back to Courses
+            </Button>
+          }
+        />
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Course Info */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Course Information</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div>
+                <div className="text-sm text-gray-600">Course Code</div>
+                <div className="font-medium">{selectedCourse.code}</div>
+              </div>
+              <div>
+                <div className="text-sm text-gray-600">Title</div>
+                <div className="font-medium">{selectedCourse.title}</div>
+              </div>
+              <div>
+                <div className="text-sm text-gray-600">Instructor</div>
+                <div className="font-medium">{selectedCourse.instructor}</div>
+              </div>
+              <div>
+                <div className="text-sm text-gray-600">My Attendance</div>
+                <div className="font-medium text-blue-600">{attendancePercentage}%</div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Attendance Statistics */}
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="text-lg">Attendance Summary</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-green-600">
+                    {studentAttendance.filter(r => r.status === 'present').length}
+                  </div>
+                  <div className="text-sm text-gray-600">Present</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-red-600">
+                    {studentAttendance.filter(r => r.status === 'absent').length}
+                  </div>
+                  <div className="text-sm text-gray-600">Absent</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-yellow-600">
+                    {studentAttendance.filter(r => r.status === 'late').length}
+                  </div>
+                  <div className="text-sm text-gray-600">Late</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-blue-600">
+                    {studentAttendance.filter(r => r.status === 'excused').length}
+                  </div>
+                  <div className="text-sm text-gray-600">Excused</div>
+                </div>
+              </div>
+
+              {/* Recent Attendance Records */}
+              <div className="space-y-2">
+                <h4 className="font-medium">Recent Attendance</h4>
+                <div className="space-y-1 max-h-64 overflow-y-auto">
+                  {studentAttendance
+                    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                    .slice(0, 10)
+                    .map((record, index) => (
+                      <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                        <div className="text-sm">
+                          {new Date(record.date).toLocaleDateString()}
+                        </div>
+                        <Badge
+                          variant={
+                            record.status === 'present' ? 'success' :
+                            record.status === 'absent' ? 'error' :
+                            record.status === 'late' ? 'secondary' : 'outline'
+                          }
+                          className="capitalize"
+                        >
+                          {record.status}
+                        </Badge>
+                      </div>
+                    ))}
+                </div>
+                {studentAttendance.length === 0 && (
+                  <div className="text-center py-4 text-gray-500">
+                    No attendance records found for this course.
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
   // Fallback for unauthorized users
   return (
     <div className="space-y-4">
@@ -1059,6 +1925,3 @@ export default function Attendance() {
     </div>
   );
 }
-
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      xs  
