@@ -220,6 +220,10 @@ export async function calculateOverallGradeForUser(userId: string): Promise<numb
     let totalWeightedGrade = 0;
     let totalWeight = 0;
 
+    // Normalize weights: support either 0..1 fractional or 0..100 percent scales
+    const rawWeightSum = allAssignments.reduce((s, a) => s + Number(a.weight || 0), 0);
+    const weightScale = rawWeightSum > 0 && rawWeightSum <= 1.5 ? 100 : 1;
+
     for (const assignment of allAssignments) {
       try {
         const submissions = await listSubmissions(assignment.id!);
@@ -228,8 +232,9 @@ export async function calculateOverallGradeForUser(userId: string): Promise<numb
         
         if (studentSubmission && studentSubmission.grade.points !== null && studentSubmission.grade.points !== undefined) {
           const gradePercentage = (studentSubmission.grade.points / assignment.maxPoints) * 100;
-          totalWeightedGrade += (gradePercentage * assignment.weight);
-          totalWeight += assignment.weight;
+          const w = Number(assignment.weight || 0) * weightScale;
+          totalWeightedGrade += (gradePercentage * w);
+          totalWeight += w;
         }
       } catch (error) {
         console.error(`Error fetching submissions for assignment ${assignment.id}:`, error);
