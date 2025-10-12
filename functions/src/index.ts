@@ -495,3 +495,87 @@ export const triggerDatabaseBackup = onCall(corsOptions, async (request) => {
     throw new HttpsError("internal", "Failed to trigger database backup");
   }
 });
+
+// ==================== ANNOUNCEMENTS FEED ====================
+
+const normalizeAnnouncementAudience = (raw: any): string[] => {
+  if (Array.isArray(raw)) {
+    const values = raw.filter((value) => typeof value === "string" && value.length > 0);
+    if (values.length === 0) {
+      return ["all"];
+    }
+    if (values.includes("all")) {
+      return ["all"];
+    }
+    return Array.from(new Set(values));
+  }
+  return ["all"];
+};
+
+const audienceMatches = (audiences: string[], desired: string): boolean => {
+  if (audiences.includes("all")) return true;
+  return audiences.includes(desired);
+};
+
+export const fetchAnnouncementsFeed = onCall(corsOptions, async (request) => {
+  const { limit = 5, audience = "all", includeExpired = false } = (request.data ?? {}) as {
+    limit?: number;
+    audience?: string;
+    includeExpired?: boolean;
+  };
+
+  try {
+    const effectiveLimit = Math.min(Math.max(Number(limit) || 5, 1) * 3, 60);
+    const snapshot = await db.collection("announcements")
+      .orderBy("publishedAt", "desc")
+      .limit(effectiveLimit)
+      .get();
+
+    const now = Date.now();
+
+    const mapped = snapshot.docs.map((docSnapshot) => {
+      const data = docSnapshot.data();
+      const publishedAt = typeof data.publishedAt?.toMillis === "function"
+        ? data.publishedAt.toMillis()
+        : (data.publishedAt ?? now);
+      const expiresAt = typeof data.expiresAt?.toMillis === "function"
+        ? data.expiresAt.toMillis()
+        : data.expiresAt ?? null;
+      const targetAudience = normalizeAnnouncementAudience(data.targetAudience);
+
+      return {
+        id: docSnapshot.id,
+        title: data.title ?? "Untitled",
+        content: data.content ?? "",
+        authorName: data.authorName ?? null,
+        priority: data.priority ?? "medium",
+        targetAudience,
+        publishedAt,
+        expiresAt,
+        pinned: Boolean(data.pinned),
+      };
+    });
+
+    const filtered = mapped
+      .filter((item) => {
+        if (!includeExpired && item.expiresAt && item.expiresAt < now) {
+          return false;
+        }
+        if (!audienceMatches(item.targetAudience, audience ?? "all")) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        if (a.pinned && !b.pinned) return -1;
+        if (!a.pinned && b.pinned) return 1;
+        return (b.publishedAt ?? now) - (a.publishedAt ?? now);
+      })
+      .slice(0, Math.min(Number(limit) || 5, 30));
+
+    return { ok: true, announcements: filtered };
+  } catch (error) {
+    console.error("Error fetching announcements feed:", error);
+    throw new HttpsError("internal", "Failed to fetch announcements");
+  }
+});

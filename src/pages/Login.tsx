@@ -1,13 +1,70 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { signInWithEmailAndPassword, sendPasswordResetEmail, type AuthError } from "firebase/auth";
 import { Eye, EyeOff, Lock, Mail, Heart, GraduationCap, UserPlus, X, Bell } from "lucide-react";
-import { auth } from "../firebase";
+import { httpsCallable } from "firebase/functions";
+import { auth, functions } from "../firebase";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Card, CardContent, CardHeader } from "../components/ui/card";
 import { createUser, updateUserLastLogin } from "../lib/users";
-import type { MDYear } from "../types";
+import type { Announcement, MDYear } from "../types";
+
+type NoticeAnnouncement = {
+  id: string;
+  title: string;
+  content: string;
+  priority: Announcement["priority"];
+  publishedAt?: number;
+  authorName?: string | null;
+  pinned?: boolean;
+  expiresAt?: number | null;
+};
+
+const gradientByPriority: Record<Announcement["priority"], string> = {
+  high: "from-red-50 to-red-100/80 border-red-200/60",
+  medium: "from-blue-50 to-blue-100/80 border-blue-200/60",
+  low: "from-emerald-50 to-emerald-100/80 border-emerald-200/60",
+};
+
+const priorityLabel: Record<Announcement["priority"], string> = {
+  high: "Urgent",
+  medium: "Update",
+  low: "Info",
+};
+
+const priorityDot: Record<Announcement["priority"], string> = {
+  high: "bg-red-500",
+  medium: "bg-blue-500",
+  low: "bg-emerald-500",
+};
+
+const priorityBadge: Record<Announcement["priority"], string> = {
+  high: "text-red-800 bg-red-100/80",
+  medium: "text-blue-800 bg-blue-100/80",
+  low: "text-emerald-800 bg-emerald-100/80",
+};
+
+const truncateText = (value: string, length = 180): string => {
+  if (!value) return "";
+  if (value.length <= length) return value;
+  return `${value.slice(0, length).trimEnd()}…`;
+};
+
+const relativeTime = (value?: number): string => {
+  if (!value) return "";
+  const diff = Date.now() - value;
+  const minutes = Math.round(Math.abs(diff) / (1000 * 60));
+  if (minutes < 60) {
+    return diff >= 0 ? `${minutes} min ago` : `in ${minutes} min`;
+  }
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) {
+    return diff >= 0 ? `${hours} hr ago` : `in ${hours} hr`;
+  }
+  const days = Math.round(hours / 24);
+  return diff >= 0 ? `${days} day${days === 1 ? "" : "s"} ago` : `in ${days} day${days === 1 ? "" : "s"}`;
+};
 
 export default function Login() {
   const navigate = useNavigate();
@@ -38,6 +95,55 @@ export default function Login() {
   });
   const [signUpLoading, setSignUpLoading] = useState(false);
   const [signUpMessage, setSignUpMessage] = useState<{ text: string; type: 'error' | 'success' } | null>(null);
+  const [loginAnnouncements, setLoginAnnouncements] = useState<NoticeAnnouncement[]>([]);
+  const [announcementsLoading, setAnnouncementsLoading] = useState<boolean>(true);
+  const [announcementsError, setAnnouncementsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadAnnouncements = async () => {
+      try {
+        setAnnouncementsLoading(true);
+        setAnnouncementsError(null);
+
+        const callable = httpsCallable(functions, "fetchAnnouncementsFeed");
+        const response = await callable({ limit: 6, audience: "all", includeExpired: false });
+        if (cancelled) return;
+
+        const payload = response.data as any;
+        if (payload?.ok && Array.isArray(payload.announcements)) {
+          const mapped = payload.announcements.map((item: any): NoticeAnnouncement => ({
+            id: item.id,
+            title: item.title ?? "Announcement",
+            content: item.content ?? "",
+            priority: (item.priority ?? "medium") as Announcement["priority"],
+            publishedAt: typeof item.publishedAt === "number" ? item.publishedAt : undefined,
+            authorName: item.authorName ?? null,
+            pinned: Boolean(item.pinned),
+            expiresAt: typeof item.expiresAt === "number" ? item.expiresAt : null,
+          }));
+          setLoginAnnouncements(mapped);
+        } else {
+          setLoginAnnouncements([]);
+        }
+      } catch (error) {
+        console.error("Failed to load announcements feed:", error);
+        if (!cancelled) {
+          setAnnouncementsError("Unable to load announcements at the moment.");
+        }
+      } finally {
+        if (!cancelled) {
+          setAnnouncementsLoading(false);
+        }
+      }
+    };
+
+    loadAnnouncements();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const onLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -222,84 +328,107 @@ export default function Login() {
               <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-blue-500 to-teal-500"></div>
 
               <div className="relative">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="p-2 bg-blue-100 rounded-xl shadow-sm">
-                    <Bell size={20} className="text-blue-600" />
+                <div className="mb-6 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-blue-100 rounded-xl shadow-sm">
+                      <Bell size={20} className="text-blue-600" />
+                    </div>
+                    <div>
+                      <h2 className="text-xl font-bold text-slate-800">Notice Board</h2>
+                      <p className="text-sm text-slate-600">
+                        {announcementsLoading
+                          ? "Gathering announcements…"
+                          : announcementsError
+                          ? "Announcements unavailable right now"
+                          : loginAnnouncements.length === 0
+                          ? "No announcements posted yet"
+                          : `${loginAnnouncements.length} announcement${loginAnnouncements.length === 1 ? "" : "s"} for you`}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <h2 className="text-xl font-bold text-slate-800">Notice Board</h2>
-                    <p className="text-sm text-slate-600">Latest updates and announcements</p>
-                  </div>
+                  {loginAnnouncements.some((item) => item.pinned) ? (
+                    <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
+                      {loginAnnouncements.filter((item) => item.pinned).length} pinned
+                    </span>
+                  ) : null}
+                </div>
+
+                <div className="space-y-3 h-80 overflow-y-auto pr-2 custom-scrollbar">
+                  {announcementsLoading ? (
+                    Array.from({ length: 3 }).map((_, index) => (
+                      <div
+                        key={`announcement-skeleton-${index}`}
+                        className="animate-pulse rounded-lg border border-slate-200/60 bg-slate-100/60 p-4 shadow-sm"
+                      >
+                        <div className="mb-3 h-3 w-24 rounded-full bg-slate-200" />
+                        <div className="mb-2 h-4 w-3/4 rounded-full bg-slate-200" />
+                        <div className="h-3 w-full rounded-full bg-slate-200" />
+                      </div>
+                    ))
+                  ) : announcementsError ? (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50/80 px-4 py-3 text-xs text-amber-700">
+                      {announcementsError}
+                    </div>
+                  ) : loginAnnouncements.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-4 py-6 text-center text-xs text-slate-500">
+                      Announcements will appear here once they are published.
+                    </div>
+                  ) : (
+                    loginAnnouncements.map((announcement) => {
+                      const gradient = gradientByPriority[announcement.priority] ?? gradientByPriority.medium;
+                      const badgeClass = priorityBadge[announcement.priority] ?? priorityBadge.medium;
+                      return (
+                        <div
+                          key={announcement.id}
+                          className={`bg-gradient-to-r ${gradient} rounded-lg border p-4 shadow-sm transition hover:shadow-lg`}
+                        >
+                          <div className="flex items-start justify-between gap-2 text-xs">
+                            <div className="flex items-center gap-2">
+                              <div className={`h-2 w-2 rounded-full ${priorityDot[announcement.priority]}`} />
+                              <span className={`rounded-full px-2 py-1 font-semibold ${badgeClass}`}>
+                                {announcement.pinned ? "Pinned" : priorityLabel[announcement.priority]}
+                              </span>
+                            </div>
+                            <span className="rounded-md bg-white/80 px-2 py-1 font-medium text-slate-500">
+                              {relativeTime(announcement.publishedAt)}
+                            </span>
+                          </div>
+                          <h3 className="mt-2 text-sm font-bold text-slate-800">{announcement.title}</h3>
+                          <p className="mt-2 text-xs leading-relaxed text-slate-700">
+                            {truncateText(announcement.content)}
+                          </p>
+                          <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                            {announcement.authorName ? <span>By {announcement.authorName}</span> : null}
+                            {announcement.expiresAt ? (
+                              <span>Expires {relativeTime(announcement.expiresAt)}</span>
+                            ) : null}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
               </div>
 
-            {/* Announcements */}
-            <div className="relative">
-              <div className="space-y-3 h-80 overflow-y-auto pr-2 custom-scrollbar">
-                {/* Announcement 1 */}
-                <div className="bg-gradient-to-r from-blue-50 to-blue-100/70 rounded-lg p-3 border border-blue-200/50 shadow-sm">
-                  <div className="flex items-start justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                      <span className="text-xs font-bold text-blue-800 bg-blue-100/70 px-2 py-1 rounded-full">System Update</span>
-                    </div>
-                    <span className="text-xs text-slate-500 font-medium bg-white/70 px-2 py-1 rounded-md">Today</span>
-                  </div>
-                  <h3 className="font-bold text-slate-800 mb-1 text-sm">Portal Performance Enhancement</h3>
-                  <p className="text-xs text-slate-600">New optimizations have been deployed for faster loading and improved user experience.</p>
-                </div>
-
-                {/* Announcement 2 */}
-                <div className="bg-gradient-to-r from-emerald-50 to-emerald-100/70 rounded-lg p-3 border border-emerald-200/50 shadow-sm">
-                  <div className="flex items-start justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
-                      <span className="text-xs font-bold text-emerald-800 bg-emerald-100/70 px-2 py-1 rounded-full">Academic</span>
-                    </div>
-                    <span className="text-xs text-slate-500 font-medium bg-white/70 px-2 py-1 rounded-md">2 days ago</span>
-                  </div>
-                  <h3 className="font-bold text-slate-800 mb-1 text-sm">New Clinical Rotation Schedule</h3>
-                  <p className="text-xs text-slate-600">Updated clinical rotation schedules for Spring 2025 semester are now available in your dashboard.</p>
-                </div>
-
-                {/* Announcement 3 */}
-                <div className="bg-gradient-to-r from-amber-50 to-amber-100/70 rounded-lg p-3 border border-amber-200/50 shadow-sm">
-                  <div className="flex items-start justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 bg-amber-500 rounded-full"></div>
-                      <span className="text-xs font-bold text-amber-800 bg-amber-100/70 px-2 py-1 rounded-full">Reminder</span>
-                    </div>
-                    <span className="text-xs text-slate-500 font-medium bg-white/70 px-2 py-1 rounded-md">3 days ago</span>
-                  </div>
-                  <h3 className="font-bold text-slate-800 mb-1 text-sm">Assignment Submission Deadline</h3>
-                  <p className="text-xs text-slate-600">Clinical Assessment submissions are due by February 15th. Submit early to avoid last-minute issues.</p>
-                </div>
-
-                {/* Announcement 4 */}
-                <div className="bg-gradient-to-r from-purple-50 to-purple-100/70 rounded-lg p-3 border border-purple-200/50 shadow-sm">
-                  <div className="flex items-start justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
-                      <span className="text-xs font-bold text-purple-800 bg-purple-100/70 px-2 py-1 rounded-full">Event</span>
-                    </div>
-                    <span className="text-xs text-slate-500 font-medium bg-white/70 px-2 py-1 rounded-md">1 week ago</span>
-                  </div>
-                  <h3 className="font-bold text-slate-800 mb-1 text-sm">Medical Excellence Symposium</h3>
-                  <p className="text-xs text-slate-600">Join us for the Annual Medical Excellence Symposium on March 10th featuring renowned healthcare professionals.</p>
-                </div>
-              </div>
-            </div>
-
-              {/* Footer */}
               <div className="absolute bottom-6 left-6 right-6">
                 <div className="bg-slate-50/80 rounded-xl p-4 border border-slate-200/50">
                   <div className="flex items-center justify-between text-xs">
                     <div className="flex items-center gap-2 text-slate-600 font-medium">
-                      <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                      <span>Last updated: Today, 2:30 PM</span>
+                      <div className="h-2 w-2 rounded-full bg-blue-500"></div>
+                      <span>
+                        {announcementsLoading
+                          ? "Refreshing notice board…"
+                          : loginAnnouncements[0]?.publishedAt
+                          ? `Last updated ${relativeTime(loginAnnouncements[0]?.publishedAt)}`
+                          : "Awaiting first announcement"}
+                      </span>
                     </div>
-                    <div className="bg-gradient-to-r from-blue-500/10 to-teal-500/10 px-3 py-1.5 rounded-full border border-blue-200/50">
-                      <span className="text-slate-700 font-semibold text-xs">4 new announcements</span>
+                    <div className="rounded-full border border-blue-200/60 bg-gradient-to-r from-blue-500/10 to-teal-500/10 px-3 py-1.5">
+                      <span className="text-slate-700 font-semibold text-xs">
+                        {announcementsLoading
+                          ? "Loading…"
+                          : `${loginAnnouncements.length} active announcement${loginAnnouncements.length === 1 ? "" : "s"}`}
+                      </span>
                     </div>
                   </div>
                 </div>

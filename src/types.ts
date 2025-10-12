@@ -115,15 +115,24 @@ export type Session = {
   createdAt: number;
 };
 
+export type AnnouncementAudience = "all" | "students" | "teachers" | "admins";
+
 export type Announcement = {
   id?: string;
   title: string;
   content: string;
   authorId: string;
+  authorUid?: string;
+  authorName?: string;
   courseId?: string;
   priority: "low" | "medium" | "high";
+  targetAudience?: AnnouncementAudience[];
+  tags?: string[];
+  pinned?: boolean;
   publishedAt: number;
   expiresAt?: number;
+  createdAt?: number;
+  updatedAt?: number;
 };
 
 export type Semester = {
