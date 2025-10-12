@@ -126,7 +126,7 @@ function AnnouncementComposer({
   const [targetAudience, setTargetAudience] = useState<AnnouncementAudience[]>(
     defaultValue?.targetAudience ?? ["all"],
   );
-  const [courseId, setCourseId] = useState<string>(defaultValue?.courseId ?? "");
+  const [courseId, setCourseId] = useState<string>(defaultValue?.courseId ?? "all");
   const [pinned, setPinned] = useState<boolean>(Boolean(defaultValue?.pinned));
   const [expiresAt, setExpiresAt] = useState<string>(
     defaultValue?.expiresAt ? new Date(defaultValue.expiresAt).toISOString().slice(0, 16) : "",
@@ -140,7 +140,7 @@ function AnnouncementComposer({
       setContent(defaultValue.content);
       setPriority(defaultValue.priority ?? "medium");
       setTargetAudience(defaultValue.targetAudience ?? ["all"]);
-      setCourseId(defaultValue.courseId ?? "");
+      setCourseId(defaultValue.courseId ?? "all");
       setPinned(Boolean(defaultValue.pinned));
       setExpiresAt(defaultValue.expiresAt ? new Date(defaultValue.expiresAt).toISOString().slice(0, 16) : "");
       setTags((defaultValue.tags ?? []).join(", "));
@@ -154,7 +154,7 @@ function AnnouncementComposer({
       setContent("");
       setPriority("medium");
       setTargetAudience(["all"]);
-      setCourseId("");
+      setCourseId("all");
       setPinned(false);
       setExpiresAt("");
       setTags("");
@@ -194,7 +194,7 @@ function AnnouncementComposer({
       content: content.trim(),
       priority,
       targetAudience,
-      courseId: courseId || undefined,
+      courseId: courseId === "all" ? undefined : courseId,
       pinned,
       tags: normalizedTags,
       expiresAt: expiresAt ? new Date(expiresAt) : null,
@@ -265,7 +265,7 @@ function AnnouncementComposer({
                   <SelectValue placeholder="All courses" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All courses</SelectItem>
+                  <SelectItem value="all">All courses</SelectItem>
                   {courses.map((course) => (
                     <SelectItem key={course.id} value={course.id}>
                       {course.code} — {course.title}
