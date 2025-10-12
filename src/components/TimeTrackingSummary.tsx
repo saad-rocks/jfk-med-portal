@@ -12,6 +12,7 @@ import {
 } from '../lib/timeTracking';
 import { generateMonthlyTimeReport } from '../lib/pdfGenerator';
 import { generateMonthlyTimeReportMake } from '../lib/pdfGeneratorMake';
+import { generateMonthlyTimeReportClean } from '../lib/pdfGeneratorClean';
 
 interface TimeTrackingSummaryProps {
   userId?: string;
@@ -24,7 +25,7 @@ export function TimeTrackingSummary({ userId, displayName }: TimeTrackingSummary
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [monthlyReport, setMonthlyReport] = useState<MonthlyReport | null>(null);
-  const [pdfGenerator, setPdfGenerator] = useState<'jspdf' | 'pdfmake'>('pdfmake');
+  const [pdfGenerator, setPdfGenerator] = useState<'jspdf' | 'pdfmake' | 'clean'>('clean');
 
   const currentMonth = currentDate.getMonth() + 1;
   const currentYear = currentDate.getFullYear();
@@ -119,7 +120,14 @@ export function TimeTrackingSummary({ userId, displayName }: TimeTrackingSummary
     }
 
     try {
-      if (pdfGenerator === 'pdfmake') {
+      if (pdfGenerator === 'clean') {
+        generateMonthlyTimeReportClean(monthlyReport);
+        push({
+          title: 'PDF Generated',
+          description: 'Clean 1-page report downloaded successfully',
+          variant: 'success'
+        });
+      } else if (pdfGenerator === 'pdfmake') {
         generateMonthlyTimeReportMake(monthlyReport);
         push({
           title: 'PDF Generated (pdfmake)',
@@ -153,15 +161,23 @@ export function TimeTrackingSummary({ userId, displayName }: TimeTrackingSummary
             Monthly Summary
           </span>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setPdfGenerator('pdfmake')}>
-              pdfmake
+            <Button
+              variant={pdfGenerator === 'clean' ? 'primary' : 'outline'}
+              size="sm"
+              onClick={() => setPdfGenerator('clean')}
+            >
+              Clean
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setPdfGenerator('jspdf')}>
-              jsPDF
+            <Button
+              variant={pdfGenerator === 'pdfmake' ? 'primary' : 'outline'}
+              size="sm"
+              onClick={() => setPdfGenerator('pdfmake')}
+            >
+              Detailed
             </Button>
-            <Button variant="primary" size="sm" onClick={generatePDF}>
+            <Button variant="primary" size="sm" onClick={generatePDF} className="bg-blue-600 hover:bg-blue-700">
               <Download className="mr-2 h-4 w-4" />
-              Export
+              Export PDF
             </Button>
           </div>
         </CardTitle>
@@ -210,17 +226,23 @@ export function TimeTrackingSummary({ userId, displayName }: TimeTrackingSummary
               No time entries recorded for this month.
             </div>
           ) : (
-            dailyTotals.map((day) => (
-              <div key={day.date} className="rounded-xl border border-slate-200 p-4">
-                <div className="flex items-center justify-between text-sm text-slate-600">
-                  <span>{formatDate(new Date(day.date))}</span>
-                  <span>{day.sessions} session{day.sessions === 1 ? '' : 's'}</span>
+            dailyTotals.map((day) => {
+              // Parse date string as local date to avoid timezone issues
+              const [year, month, dayNum] = day.date.split('-').map(Number);
+              const localDate = new Date(year, month - 1, dayNum);
+
+              return (
+                <div key={day.date} className="rounded-xl border border-slate-200 p-4">
+                  <div className="flex items-center justify-between text-sm text-slate-600">
+                    <span>{formatDate(localDate)}</span>
+                    <span>{day.sessions} session{day.sessions === 1 ? '' : 's'}</span>
+                  </div>
+                  <div className="mt-1 text-lg font-semibold text-slate-900">
+                    {day.totalHours.toFixed(2)} hours
+                  </div>
                 </div>
-                <div className="mt-1 text-lg font-semibold text-slate-900">
-                  {day.totalHours.toFixed(2)} hours
-                </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
 

@@ -607,7 +607,10 @@ export function generateMonthlyTimeReport(report: MonthlyReport): void {
     .sort(([a], [b]) => a.localeCompare(b))
     .forEach(([date, entries]) => {
       const dailyTotal = entries.reduce((sum, entry) => sum + (entry.totalHours || 0), 0);
-      const dateStr = new Date(date).toLocaleDateString('en-US', {
+      // Parse date string as local date to avoid timezone issues
+      const [year, month, day] = date.split('-').map(Number);
+      const localDate = new Date(year, month - 1, day);
+      const dateStr = localDate.toLocaleDateString('en-US', {
         weekday: 'short',
         month: 'short',
         day: 'numeric',
@@ -773,7 +776,10 @@ export function generateTimeSheet(entries: TimeEntry[], userName: string, startD
   Object.entries(entriesByDate)
     .sort(([a], [b]) => a.localeCompare(b))
     .forEach(([date, dayEntries]) => {
-      const dateStr = new Date(date).toLocaleDateString('en-US', {
+      // Parse date string as local date to avoid timezone issues
+      const [year, month, day] = date.split('-').map(Number);
+      const localDate = new Date(year, month - 1, day);
+      const dateStr = localDate.toLocaleDateString('en-US', {
         weekday: 'short',
         month: 'short',
         day: 'numeric',

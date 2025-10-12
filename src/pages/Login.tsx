@@ -6,7 +6,7 @@ import { auth } from "../firebase";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Card, CardContent, CardHeader } from "../components/ui/card";
-import { createUser } from "../lib/users";
+import { createUser, updateUserLastLogin } from "../lib/users";
 import type { MDYear } from "../types";
 
 export default function Login() {
@@ -45,7 +45,12 @@ export default function Login() {
     setMessage(null);
     
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      const credential = await signInWithEmailAndPassword(auth, email, password);
+      try {
+        await updateUserLastLogin(credential.user.uid);
+      } catch (updateError) {
+        console.warn("Could not record last login timestamp:", updateError);
+      }
       setMessage({ text: "Welcome back! Redirecting to dashboard...", type: 'success' });
       setTimeout(() => navigate("/", { replace: true }), 1000);
     } catch (err: unknown) {

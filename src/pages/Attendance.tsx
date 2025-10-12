@@ -50,7 +50,8 @@ import {
   CheckSquare,
   RefreshCw,
   Download,
-  Zap
+  Zap,
+  Eye
 } from "lucide-react";
 
 type ViewMode = 'course-selection' | 'calendar-view' | 'take-attendance' | 'view-records' | 'student-history';
@@ -83,14 +84,26 @@ export default function Attendance() {
   const [studentAttendance, setStudentAttendance] = useState<AttendanceRecord[]>([]);
   const [attendancePercentage, setAttendancePercentage] = useState(0);
   const [studentCalendarData, setStudentCalendarData] = useState<{ [dateString: string]: 'present' | 'absent' | 'late' | 'excused' }>({});
+  const [courseAttendancePercentages, setCourseAttendancePercentages] = useState<{ [courseId: string]: number }>({});
+  const [courseAttendanceRecords, setCourseAttendanceRecords] = useState<{ [courseId: string]: AttendanceRecord[] }>({});
+  const [expandedCourses, setExpandedCourses] = useState<{ [courseId: string]: boolean }>({});
 
   // Loading states for better UX
   const [markingAttendance, setMarkingAttendance] = useState<{ [studentId: string]: boolean }>({});
   const [bulkOperationLoading, setBulkOperationLoading] = useState(false);
   const [calendarLoading, setCalendarLoading] = useState(false);
+  const [courseDataLoading, setCourseDataLoading] = useState(false);
+  const [attendanceViewLoading, setAttendanceViewLoading] = useState(false);
 
   // Cache for student enrollment mapping to improve performance
   const [enrollmentCache, setEnrollmentCache] = useState<{ [courseId: string]: { [studentId: string]: string } }>({});
+
+  // Cache for course attendance session counts (for teacher view)
+  const [courseSessionCounts, setCourseSessionCounts] = useState<{ [courseId: string]: number }>({});
+
+  // Global enrollment cache for the page lifecycle
+  const [allEnrollmentsCache, setAllEnrollmentsCache] = useState<Array<Enrollment & { id: string }> | null>(null);
+  const [enrollmentsCacheTimestamp, setEnrollmentsCacheTimestamp] = useState<number>(0);
 
   // Student context
   const [studentAttendanceId, setStudentAttendanceId] = useState<string | null>(null);
@@ -113,6 +126,28 @@ export default function Attendance() {
   useEffect(() => {
     loadInitialData();
   }, [role, user]);
+
+  // Helper function to get enrollments (with caching)
+  const getEnrollmentsWithCache = async (forceRefresh: boolean = false): Promise<Array<Enrollment & { id: string }>> => {
+    const cacheValidDuration = 5 * 60 * 1000; // 5 minutes cache
+    const now = Date.now();
+
+    // Return cache if valid and not forcing refresh
+    if (!forceRefresh && allEnrollmentsCache && (now - enrollmentsCacheTimestamp) < cacheValidDuration) {
+      return allEnrollmentsCache;
+    }
+
+    // Fetch fresh data
+    const enrollments = await listEnrollments();
+    setAllEnrollmentsCache(enrollments);
+    setEnrollmentsCacheTimestamp(now);
+    return enrollments;
+  };
+
+  // Helper to refresh enrollment cache
+  const refreshEnrollmentCache = async () => {
+    return getEnrollmentsWithCache(true);
+  };
 
   const loadInitialData = async () => {
     try {
@@ -141,6 +176,21 @@ export default function Attendance() {
         setTeacherCourses(Array.isArray(teacherAssignments) ? teacherAssignments : []);
         setAllCourses(coursesData);
         setStudents(usersData.filter(u => u.role === 'student'));
+
+        // Load session counts for all courses
+        const sessionCounts: { [courseId: string]: number } = {};
+        for (const course of coursesData) {
+          if (course.id) {
+            try {
+              const dates = await getCourseAttendanceDates(course.id);
+              sessionCounts[course.id] = Object.keys(dates).length;
+            } catch (error) {
+              console.error(`Error loading session count for course ${course.id}:`, error);
+              sessionCounts[course.id] = 0;
+            }
+          }
+        }
+        setCourseSessionCounts(sessionCounts);
       } else if (role === 'student' && user) {
         console.log('Loading student data for user:', user.uid);
 
@@ -195,6 +245,8 @@ export default function Attendance() {
     try {
       let totalPresent = 0;
       let totalRecords = 0;
+      const coursePercentages: { [courseId: string]: number } = {};
+      const courseRecords: { [courseId: string]: AttendanceRecord[] } = {};
 
       await Promise.all(
         enrollments.map(async (enrollment) => {
@@ -202,23 +254,35 @@ export default function Attendance() {
           const records = await getStudentCourseAttendanceRecords(enrollment.studentId, enrollment.courseId);
           totalRecords += records.length;
           totalPresent += records.filter(record => record.status === 'present' || record.status === 'late').length;
+
+          // Build per-course maps
+          courseRecords[enrollment.courseId] = records;
+          const presentCount = records.filter(r => r.status === 'present' || r.status === 'late').length;
+          coursePercentages[enrollment.courseId] = records.length > 0 ? Math.round((presentCount / records.length) * 100) : 100;
         })
       );
 
       const percentage = totalRecords > 0 ? Math.round((totalPresent / totalRecords) * 100) : 100;
       setAttendancePercentage(percentage);
+      setCourseAttendanceRecords(courseRecords);
+      setCourseAttendancePercentages(coursePercentages);
     } catch (error) {
       console.error('Error calculating student attendance summary:', error);
       setAttendancePercentage(100);
     }
   };
 
+  const toggleExpandCourse = (courseId: string) => {
+    setExpandedCourses(prev => ({ ...prev, [courseId]: !prev[courseId] }));
+  };
+
   const handleSelectCourse = async (course: Course) => {
     setSelectedCourse(course);
+    setCourseDataLoading(true);
     setCurrentView('calendar-view');
 
     try {
-      const enrollments = await listEnrollments();
+      const enrollments = await getEnrollmentsWithCache();
       const courseEnrollments = enrollments.filter(e => e.courseId === course.id);
 
       const enrolledStudentIds = new Set(courseEnrollments.map(e => e.studentId));
@@ -260,6 +324,8 @@ export default function Attendance() {
 
     } catch (error) {
       console.error('Error loading course data:', error);
+    } finally {
+      setCourseDataLoading(false);
     }
   };
 
@@ -267,6 +333,7 @@ export default function Attendance() {
     if (!selectedCourse) return;
 
     setSelectedDate(date);
+    setAttendanceViewLoading(true);
     setCurrentView('take-attendance');
 
     const dateString = formatDateForStorage(date);
@@ -286,6 +353,8 @@ export default function Attendance() {
 
     } catch (error) {
       console.error('Error loading attendance data for date:', error);
+    } finally {
+      setAttendanceViewLoading(false);
     }
   };
 
@@ -304,7 +373,7 @@ export default function Attendance() {
 
       if (!attendanceStudentId) {
         // Find enrollment and cache it
-        const enrollments = await listEnrollments();
+        const enrollments = await getEnrollmentsWithCache();
         const courseEnrollments = enrollments.filter(e => e.courseId === selectedCourse.id);
 
         const studentEnrollment = courseEnrollments.find(e =>
@@ -424,7 +493,7 @@ export default function Attendance() {
         let attendanceStudentId = enrollmentCache[selectedCourse.id]?.[student.id];
 
         if (!attendanceStudentId) {
-          const enrollments = await listEnrollments();
+          const enrollments = await getEnrollmentsWithCache();
           const courseEnrollments = enrollments.filter(e => e.courseId === selectedCourse.id);
         const studentEnrollment = courseEnrollments.find(e =>
           e.studentId === student.id ||
@@ -608,7 +677,7 @@ export default function Attendance() {
       console.log('🔧 Analyzing attendance issues for course:', selectedCourse.id);
 
       // Get all enrolled students
-      const enrollments = await listEnrollments();
+      const enrollments = await getEnrollmentsWithCache();
       const courseEnrollments = enrollments.filter(e => e.courseId === selectedCourse.id);
       const enrolledStudentIds = courseEnrollments.map(e => e.studentId);
 
@@ -709,7 +778,7 @@ export default function Attendance() {
   const buildStudentAttendanceMap = async () => {
     if (!selectedCourse?.id) return;
 
-    const enrollments = await listEnrollments();
+    const enrollments = await getEnrollmentsWithCache();
     const courseEnrollments = enrollments.filter(e => e.courseId === selectedCourse.id);
 
     const mapping: { [studentId: string]: AttendanceRecord | null } = {};
@@ -748,6 +817,7 @@ export default function Attendance() {
     if (!user) return;
 
     setSelectedCourse(course);
+    setAttendanceViewLoading(true);
     setCurrentView('student-history');
 
     try {
@@ -765,6 +835,8 @@ export default function Attendance() {
       setStudentCalendarData(calendarData);
     } catch (error) {
       console.error('Error loading student attendance history:', error);
+    } finally {
+      setAttendanceViewLoading(false);
     }
   };
 
@@ -849,12 +921,69 @@ export default function Attendance() {
                  (course.code || '').toLowerCase().includes(query);
         });
 
+  // Skeleton Loader Component
+  const SkeletonCard = () => (
+    <Card className="animate-pulse">
+      <div className="flex flex-col md:flex-row gap-6 p-6">
+        <div className="flex items-start gap-4 md:flex-1">
+          <div className="w-14 h-14 rounded-xl bg-gray-200" />
+          <div className="flex-1 space-y-3">
+            <div className="h-5 bg-gray-200 rounded w-3/4" />
+            <div className="h-4 bg-gray-200 rounded w-1/2" />
+            <div className="h-4 bg-gray-200 rounded w-2/3" />
+          </div>
+        </div>
+        <div className="flex items-center gap-6 md:flex-1">
+          <div className="flex items-center gap-3 px-4 py-3 bg-gray-100 rounded-lg w-32 h-20" />
+          <div className="flex items-center gap-3 px-4 py-3 bg-gray-100 rounded-lg w-32 h-20" />
+        </div>
+        <div className="flex flex-col gap-3 md:w-64">
+          <div className="h-9 bg-gray-200 rounded" />
+          <div className="h-9 bg-gray-200 rounded" />
+        </div>
+      </div>
+    </Card>
+  );
+
+  const SkeletonStats = () => (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {[1, 2, 3].map((i) => (
+        <Card key={i} className="animate-pulse">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div className="space-y-2">
+                <div className="h-8 w-16 bg-gray-200 rounded" />
+                <div className="h-4 w-24 bg-gray-200 rounded" />
+              </div>
+              <div className="h-8 w-8 bg-gray-200 rounded-full" />
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
+      <div className="space-y-6">
+        <PageHeader
+          title={role === 'student' ? "My Attendance" : "Attendance Management"}
+          breadcrumb={[{ label: 'Home', to: '/' }, { label: 'Attendance' }]}
+        />
+
+        {/* Quick Stats Skeleton */}
+        <SkeletonStats />
+
+        {/* Search Bar Skeleton */}
         <div className="flex items-center gap-3">
-          <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
-          <span className="text-gray-600">Loading attendance system...</span>
+          <div className="relative flex-1 max-w-md h-10 bg-gray-200 rounded animate-pulse" />
+        </div>
+
+        {/* Course Cards Skeleton */}
+        <div className="space-y-4">
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
         </div>
       </div>
     );
@@ -863,6 +992,60 @@ export default function Attendance() {
   // Admin/Teacher View
   if (role === 'admin' || role === 'teacher') {
     if (currentView === 'calendar-view' && selectedCourse) {
+      if (courseDataLoading) {
+        return (
+          <div className="space-y-6">
+            <PageHeader
+              title={`Attendance Calendar - ${selectedCourse.title}`}
+              breadcrumb={[
+                { label: 'Attendance', to: '/attendance' },
+                { label: selectedCourse.title }
+              ]}
+              actions={
+                <Button variant="outline" onClick={handleBackToCourses}>
+                  <ChevronLeft className="h-4 w-4 mr-2" />
+                  Back to Courses
+                </Button>
+              }
+            />
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Course Info Skeleton */}
+              <Card className="animate-pulse">
+                <CardHeader>
+                  <div className="h-5 bg-gray-200 rounded w-1/2" />
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="space-y-2">
+                    <div className="h-3 bg-gray-200 rounded w-1/3" />
+                    <div className="h-4 bg-gray-200 rounded w-2/3" />
+                  </div>
+                  <div className="space-y-2">
+                    <div className="h-3 bg-gray-200 rounded w-1/3" />
+                    <div className="h-4 bg-gray-200 rounded w-2/3" />
+                  </div>
+                  <div className="space-y-2">
+                    <div className="h-3 bg-gray-200 rounded w-1/3" />
+                    <div className="h-4 bg-gray-200 rounded w-2/3" />
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Calendar Skeleton */}
+              <Card className="lg:col-span-2 animate-pulse">
+                <CardHeader>
+                  <div className="h-5 bg-gray-200 rounded w-1/3" />
+                  <div className="h-4 bg-gray-200 rounded w-2/3 mt-2" />
+                </CardHeader>
+                <CardContent>
+                  <div className="h-80 bg-gray-200 rounded" />
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        );
+      }
+
       return (
         <div className="space-y-6">
           <PageHeader
@@ -953,6 +1136,86 @@ export default function Attendance() {
     }
 
     if (currentView === 'take-attendance' && selectedCourse) {
+      if (attendanceViewLoading) {
+        return (
+          <div className="space-y-6">
+            <PageHeader
+              title={`Mark Attendance - ${selectedCourse.title}`}
+              breadcrumb={[
+                { label: 'Attendance', to: '/attendance' },
+                { label: selectedCourse.title },
+                { label: selectedDate.toLocaleDateString() }
+              ]}
+              actions={
+                <Button variant="outline" onClick={handleBackToCalendar}>
+                  <ChevronLeft className="h-4 w-4 mr-2" />
+                  Back to Calendar
+                </Button>
+              }
+            />
+
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+              {/* Quick Actions Skeleton */}
+              <Card className="animate-pulse">
+                <CardHeader>
+                  <div className="h-5 bg-gray-200 rounded w-3/4" />
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="h-9 bg-gray-200 rounded" />
+                  <div className="h-9 bg-gray-200 rounded" />
+                  <div className="h-9 bg-gray-200 rounded" />
+                </CardContent>
+              </Card>
+
+              {/* Stats Skeleton */}
+              <Card className="animate-pulse">
+                <CardHeader>
+                  <div className="h-5 bg-gray-200 rounded w-2/3" />
+                  <div className="h-4 bg-gray-200 rounded w-1/2 mt-2" />
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="h-20 bg-gray-200 rounded-lg" />
+                    <div className="h-20 bg-gray-200 rounded-lg" />
+                    <div className="h-20 bg-gray-200 rounded-lg" />
+                    <div className="h-20 bg-gray-200 rounded-lg" />
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Student List Skeleton */}
+              <Card className="lg:col-span-2 animate-pulse">
+                <CardHeader>
+                  <div className="h-5 bg-gray-200 rounded w-1/3" />
+                  <div className="h-10 bg-gray-200 rounded mt-3" />
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {[1, 2, 3, 4, 5].map((i) => (
+                      <div key={i} className="flex items-center justify-between p-3 border rounded-lg">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 bg-gray-200 rounded-full" />
+                          <div className="space-y-2">
+                            <div className="h-4 bg-gray-200 rounded w-32" />
+                            <div className="h-3 bg-gray-200 rounded w-48" />
+                          </div>
+                        </div>
+                        <div className="flex gap-1">
+                          <div className="h-8 w-8 bg-gray-200 rounded" />
+                          <div className="h-8 w-8 bg-gray-200 rounded" />
+                          <div className="h-8 w-8 bg-gray-200 rounded" />
+                          <div className="h-8 w-8 bg-gray-200 rounded" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        );
+      }
+
       return (
         <div className="space-y-6">
           <PageHeader
@@ -1366,13 +1629,13 @@ export default function Attendance() {
         />
 
         {/* Quick Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-2xl font-bold">{filteredCourses.length}</div>
-                  <div className="text-sm text-gray-600">Total Courses</div>
+                  <div className="text-sm text-gray-600">{role === 'teacher' ? 'My Courses' : 'Total Courses'}</div>
                 </div>
                 <BookOpen className="h-8 w-8 text-blue-600" />
               </div>
@@ -1383,7 +1646,7 @@ export default function Attendance() {
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-2xl font-bold">{students.length}</div>
-                  <div className="text-sm text-gray-600">Students</div>
+                  <div className="text-sm text-gray-600">Total Students</div>
                 </div>
                 <Users className="h-8 w-8 text-green-600" />
               </div>
@@ -1396,35 +1659,126 @@ export default function Attendance() {
                   <div className="text-2xl font-bold">
                     {filteredCourses.filter(c => c?.semester === 'MD-1').length}
                   </div>
-                  <div className="text-sm text-gray-600">Current Semester</div>
+                  <div className="text-sm text-gray-600">Active Semester</div>
                 </div>
-                <Clock className="h-8 w-8 text-yellow-600" />
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-2xl font-bold">
-                    {filteredCourses.length}
-                  </div>
-                  <div className="text-sm text-gray-600">Total Courses</div>
-                </div>
-                <FileText className="h-8 w-8 text-purple-600" />
+                <Calendar className="h-8 w-8 text-purple-600" />
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Courses List */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle>
-                {role === 'teacher' ? 'My Courses' : 'All Courses'}
-              </CardTitle>
-              <div className="flex gap-2">
+        {/* Search Bar */}
+        <div className="flex items-center gap-3">
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <Input
+              placeholder="Search courses..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+        </div>
+
+        {/* Courses Cards */}
+        <div className="space-y-4">
+          {filteredCourses.map((course) => {
+            if (!course) return null;
+            const totalClasses = courseSessionCounts[course.id!] ?? 0;
+
+            return (
+              <Card
+                key={course.id}
+                className="cursor-pointer hover:shadow-lg transition-all duration-300 group"
+              >
+                <div className="flex flex-col md:flex-row gap-6 p-6">
+                  {/* Left Section - Course Info */}
+                  <div className="flex items-start gap-4 md:flex-1">
+                    <div className="w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 transition-all duration-300 bg-gradient-to-br from-blue-100 to-indigo-100 group-hover:from-blue-200 group-hover:to-indigo-200">
+                      <BookOpen className="h-7 w-7 text-blue-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-lg font-bold text-slate-800 mb-1 group-hover:text-blue-600 transition-colors truncate">
+                        {course.title}
+                      </h3>
+                      <p className="text-sm text-gray-600 mb-2">{course.code} • {course.semester}</p>
+                      <p className="text-sm text-gray-500 flex items-center gap-1">
+                        <Users className="h-4 w-4 inline" />
+                        {course.instructor}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Middle Section - Stats */}
+                  <div className="flex items-center gap-6 md:flex-1">
+                    <div className="flex items-center gap-3 px-4 py-3 bg-blue-50 rounded-lg">
+                      <Users className="h-5 w-5 text-blue-600" />
+                      <div>
+                        <div className="text-xs text-gray-600">Enrolled</div>
+                        <div className="text-xl font-bold text-gray-900">
+                          {enrolledStudents.length > 0 ? enrolledStudents.length : '-'}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 px-4 py-3 bg-green-50 rounded-lg">
+                      <Calendar className="h-5 w-5 text-green-600" />
+                      <div>
+                        <div className="text-xs text-gray-600">Total Classes</div>
+                        <div className="text-xl font-bold text-gray-900">{totalClasses}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right Section - Actions */}
+                  <div className="flex flex-col gap-3 md:w-64">
+                    <Button
+                      size="sm"
+                      className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                      onClick={() => handleSelectCourse(course)}
+                    >
+                      <Calendar className="h-4 w-4 mr-2" />
+                      Mark Attendance
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => handleSelectCourse(course)}
+                    >
+                      <BarChart3 className="h-4 w-4 mr-2" />
+                      View Reports
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+
+        {/* Empty State */}
+        {filteredCourses.length === 0 && (
+          <Card>
+            <CardContent className="text-center py-12">
+              <BookOpen className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No courses found</h3>
+              <p className="text-gray-600">
+                {role === 'teacher'
+                  ? searchQuery ? 'No courses match your search.' : "You haven't been assigned to teach any courses yet."
+                  : searchQuery ? 'No courses match your search.' : "No courses are available in the system."
+                }
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Admin Debug Tools */}
+        {role === 'admin' && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Admin Tools</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-2">
                 {role === 'admin' && (
                   <>
                     <Button
@@ -1526,84 +1880,96 @@ export default function Attendance() {
                     </Button>
                   </>
                 )}
-                <Input
-                  placeholder="Search courses..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="max-w-sm"
-                />
               </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {filteredCourses.map((course) => {
-                if (!course) return null;
-
-                return (
-                  <div key={course.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 transition-colors">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                          <BookOpen className="h-5 w-5 text-blue-600" />
-                        </div>
-                        <div>
-                          <h3 className="font-medium">{course.title}</h3>
-                          <p className="text-sm text-gray-600">{course.code} • {course.semester}</p>
-                        </div>
-                      </div>
-                      <div className="text-sm text-gray-600 mt-2">
-                        Instructor: {course.instructor}
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleSelectCourse(course)}
-                      >
-                        <Calendar className="h-4 w-4 mr-2" />
-                        Mark Attendance
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleSelectCourse(course)}
-                      >
-                        <BarChart3 className="h-4 w-4 mr-2" />
-                        View Records
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })}
-
-              {filteredCourses.length === 0 && (
-                <div className="text-center py-8">
-                  <BookOpen className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No courses found</h3>
-                  <p className="text-gray-600">
-                    {role === 'teacher'
-                      ? "You haven't been assigned to teach any courses yet."
-                      : "No courses are available in the system."
-                    }
-                  </p>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
       </div>
     );
   }
 
   // Student View
   if (role === 'student' && user) {
-    if (currentView === 'calendar-view' && selectedCourse) {
+    if (currentView === 'student-history' && selectedCourse) {
+      // Attendance Details View - Shows list of attendance records
+      const records = courseAttendanceRecords[selectedCourse.id!] ?? [];
+      const percentage = courseAttendancePercentages[selectedCourse.id!] ?? 0;
+
+      if (attendanceViewLoading) {
+        return (
+          <div className="space-y-6">
+            <PageHeader
+              title={`${selectedCourse.title} - Attendance Details`}
+              breadcrumb={[
+                { label: 'Attendance', to: '/attendance' },
+                { label: selectedCourse.title }
+              ]}
+              actions={
+                <Button variant="outline" onClick={handleBackToCourses}>
+                  <ChevronLeft className="h-4 w-4 mr-2" />
+                  Back to Courses
+                </Button>
+              }
+            />
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Course Info Skeleton */}
+              <Card className="animate-pulse">
+                <CardHeader>
+                  <div className="h-5 bg-gray-200 rounded w-1/2" />
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="space-y-2">
+                    <div className="h-3 bg-gray-200 rounded w-1/3" />
+                    <div className="h-4 bg-gray-200 rounded w-2/3" />
+                  </div>
+                  <div className="space-y-2">
+                    <div className="h-3 bg-gray-200 rounded w-1/3" />
+                    <div className="h-4 bg-gray-200 rounded w-2/3" />
+                  </div>
+                  <div className="pt-3 border-t">
+                    <div className="h-3 bg-gray-200 rounded w-1/2 mb-2" />
+                    <div className="h-12 bg-gray-200 rounded w-1/3" />
+                    <div className="h-2 bg-gray-200 rounded w-full mt-2" />
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Attendance Records Skeleton */}
+              <Card className="lg:col-span-2 animate-pulse">
+                <CardHeader>
+                  <div className="h-5 bg-gray-200 rounded w-1/3" />
+                  <div className="h-4 bg-gray-200 rounded w-1/2 mt-2" />
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {[1, 2, 3, 4, 5].map((i) => (
+                      <div key={i} className="flex items-center justify-between p-4 border rounded-lg">
+                        <div className="flex items-center gap-4">
+                          <div className="flex flex-col items-center">
+                            <div className="h-8 w-8 bg-gray-200 rounded" />
+                            <div className="h-3 w-8 bg-gray-200 rounded mt-1" />
+                          </div>
+                          <div className="space-y-2">
+                            <div className="h-4 bg-gray-200 rounded w-48" />
+                            <div className="h-3 bg-gray-200 rounded w-32" />
+                          </div>
+                        </div>
+                        <div className="h-6 w-20 bg-gray-200 rounded-full" />
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        );
+      }
+
       return (
         <div className="space-y-6">
           <PageHeader
-            title={`My Attendance - ${selectedCourse.title}`}
+            title={`${selectedCourse.title} - Attendance Details`}
             breadcrumb={[
               { label: 'Attendance', to: '/attendance' },
               { label: selectedCourse.title }
@@ -1617,7 +1983,7 @@ export default function Attendance() {
           />
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Course Info */}
+            {/* Course Info Card */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg">Course Information</CardTitle>
@@ -1628,33 +1994,116 @@ export default function Attendance() {
                   <div className="font-medium">{selectedCourse.code}</div>
                 </div>
                 <div>
-                  <div className="text-sm text-gray-600">Title</div>
-                  <div className="font-medium">{selectedCourse.title}</div>
-                </div>
-                <div>
                   <div className="text-sm text-gray-600">Instructor</div>
                   <div className="font-medium">{selectedCourse.instructor}</div>
                 </div>
                 <div>
-                  <div className="text-sm text-gray-600">My Attendance</div>
-                  <div className="font-medium text-blue-600">{attendancePercentage}%</div>
+                  <div className="text-sm text-gray-600">Semester</div>
+                  <div className="font-medium">{selectedCourse.semester}</div>
+                </div>
+                <div className="pt-3 border-t border-gray-200">
+                  <div className="text-sm text-gray-600 mb-2">Attendance Rate</div>
+                  <div className={`text-3xl font-bold ${percentage < 70 ? 'text-red-600' : 'text-blue-600'}`}>
+                    {percentage}%
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
+                    <div
+                      className={`h-2 rounded-full transition-all duration-300 ${
+                        percentage < 70 ? 'bg-red-500' : 'bg-gradient-to-r from-blue-500 to-indigo-600'
+                      }`}
+                      style={{ width: `${percentage}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 pt-3 border-t border-gray-200">
+                  <div className="text-center p-2 bg-green-50 rounded-lg">
+                    <div className="text-lg font-bold text-green-600">
+                      {records.filter(r => r.status === 'present' || r.status === 'late').length}
+                    </div>
+                    <div className="text-xs text-gray-600">Present</div>
+                  </div>
+                  <div className="text-center p-2 bg-red-50 rounded-lg">
+                    <div className="text-lg font-bold text-red-600">
+                      {records.filter(r => r.status === 'absent').length}
+                    </div>
+                    <div className="text-xs text-gray-600">Absent</div>
+                  </div>
                 </div>
               </CardContent>
             </Card>
 
-            {/* Calendar */}
+            {/* Attendance Records List */}
             <Card className="lg:col-span-2">
               <CardHeader>
-                <CardTitle className="text-lg">My Attendance Calendar</CardTitle>
-                <p className="text-sm text-gray-600">View your attendance record for this course</p>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Calendar className="h-5 w-5 text-blue-600" />
+                  Attendance Records
+                </CardTitle>
+                <p className="text-sm text-gray-600">
+                  Showing {records.length} attendance {records.length === 1 ? 'record' : 'records'}
+                </p>
               </CardHeader>
               <CardContent>
-                <CalendarComponent
-                  selectedDate={selectedDate}
-                  onDateSelect={() => {}} // Read-only for students
-                  attendanceStatusData={studentCalendarData}
-                  showAttendanceStats={true}
-                />
+                {records.length > 0 ? (
+                  <div className="space-y-2 max-h-[600px] overflow-y-auto">
+                    {records
+                      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                      .map((record, index) => (
+                        <div
+                          key={index}
+                          className="flex items-center justify-between p-4 border rounded-lg hover:shadow-sm transition bg-white"
+                        >
+                          <div className="flex items-center gap-4">
+                            <div className="flex flex-col items-center">
+                              <div className="text-2xl font-bold text-gray-900">
+                                {new Date(record.date).getDate()}
+                              </div>
+                              <div className="text-xs text-gray-600 uppercase">
+                                {new Date(record.date).toLocaleDateString('en-US', { month: 'short' })}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="font-medium text-gray-900">
+                                {new Date(record.date).toLocaleDateString('en-US', {
+                                  weekday: 'long',
+                                  year: 'numeric',
+                                  month: 'long',
+                                  day: 'numeric'
+                                })}
+                              </div>
+                              <div className="text-sm text-gray-600">
+                                Marked at {new Date(record.timestamp).toLocaleTimeString('en-US', {
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                          <div>
+                            <Badge
+                              variant={
+                                record.status === 'present' ? 'success' :
+                                record.status === 'absent' ? 'error' :
+                                record.status === 'late' ? 'secondary' : 'outline'
+                              }
+                              className="capitalize text-sm px-3 py-1"
+                            >
+                              {record.status === 'present' && <CheckCircle className="h-3 w-3 mr-1 inline" />}
+                              {record.status === 'absent' && <XCircle className="h-3 w-3 mr-1 inline" />}
+                              {record.status === 'late' && <Clock className="h-3 w-3 mr-1 inline" />}
+                              {record.status}
+                            </Badge>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-12">
+                    <Calendar className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">No attendance records</h3>
+                    <p className="text-gray-600">No attendance has been marked for this course yet.</p>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -1662,7 +2111,7 @@ export default function Attendance() {
       );
     }
 
-    // Student Course Selection (Default)
+    // Student Course Selection (Default) - Redesigned with Course Cards
     return (
       <div className="space-y-6">
         <PageHeader
@@ -1670,248 +2119,157 @@ export default function Attendance() {
           breadcrumb={[{ label: 'Home', to: '/' }, { label: 'Attendance' }]}
         />
 
-        {/* Quick Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-2xl font-bold">{filteredCourses.length}</div>
-                  <div className="text-sm text-gray-600">My Courses</div>
-                </div>
-                <BookOpen className="h-8 w-8 text-blue-600" />
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-2xl font-bold">{attendancePercentage}%</div>
-                  <div className="text-sm text-gray-600">Overall Attendance</div>
-                </div>
-                <BarChart3 className="h-8 w-8 text-green-600" />
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-2xl font-bold">
-                    {studentAttendance.filter(r => r.status === 'present').length}
-                  </div>
-                  <div className="text-sm text-gray-600">Present Days</div>
-                </div>
-                <CheckCircle className="h-8 w-8 text-green-600" />
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-2xl font-bold">
-                    {studentAttendance.filter(r => r.status === 'absent').length}
-                  </div>
-                  <div className="text-sm text-gray-600">Absent Days</div>
-                </div>
-                <XCircle className="h-8 w-8 text-red-600" />
-              </div>
-            </CardContent>
-          </Card>
+        {/* Search Bar */}
+        <div className="flex items-center gap-3">
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <Input
+              placeholder="Search courses..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10"
+            />
+          </div>
         </div>
 
-        {/* My Courses */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle>My Courses</CardTitle>
-              <Input
-                placeholder="Search courses..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="max-w-sm"
-              />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {filteredCourses.map((course) => {
-                if (!course) return null;
-                // Calculate attendance percentage for this course
-                const courseAttendance = studentAttendance.filter(r => r.courseId === course.id);
-                const coursePercentage = courseAttendance.length > 0
-                  ? Math.round((courseAttendance.filter(r => r.status === 'present' || r.status === 'late').length / courseAttendance.length) * 100)
-                  : 100;
+        {/* Course Cards */}
+        <div className="space-y-4">
+          {filteredCourses.map((course) => {
+            if (!course) return null;
+            const percentage = courseAttendancePercentages[course.id!] ?? 0;
+            const records = courseAttendanceRecords[course.id!] ?? [];
+            const totalClasses = records.length;
+            const presentClasses = records.filter(r => r.status === 'present' || r.status === 'late').length;
 
-                return (
-                  <div key={course.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 transition-colors">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                          <BookOpen className="h-5 w-5 text-blue-600" />
-                        </div>
+            return (
+              <Card
+                key={course.id}
+                className="cursor-pointer hover:shadow-lg transition-all duration-300 group"
+                onClick={() => handleViewStudentHistory(course)}
+              >
+                <div className="flex flex-col md:flex-row gap-6 p-6">
+                  {/* Left Section - Course Info */}
+                  <div className="flex items-start gap-4 md:flex-1">
+                    <div className={`w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 transition-all duration-300 ${
+                      percentage < 70
+                        ? 'bg-red-100 group-hover:bg-red-200'
+                        : 'bg-gradient-to-br from-blue-100 to-indigo-100 group-hover:from-blue-200 group-hover:to-indigo-200'
+                    }`}>
+                      <BookOpen className={`h-7 w-7 ${percentage < 70 ? 'text-red-600' : 'text-blue-600'}`} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-lg font-bold text-slate-800 mb-1 group-hover:text-blue-600 transition-colors truncate">
+                        {course.title}
+                      </h3>
+                      <p className="text-sm text-gray-600 mb-2">{course.code} • {course.semester}</p>
+                      <p className="text-sm text-gray-500 flex items-center gap-1">
+                        <Users className="h-4 w-4 inline" />
+                        {course.instructor}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Middle Section - Attendance Progress */}
+                  <div className="md:flex-1 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-gray-700">Attendance Rate</span>
+                      <span className={`text-3xl font-bold ${
+                        percentage < 70 ? 'text-red-600' : 'text-blue-600'
+                      }`}>
+                        {percentage}%
+                      </span>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+                      <div
+                        className={`h-3 rounded-full transition-all duration-500 ${
+                          percentage < 70
+                            ? 'bg-red-500'
+                            : 'bg-gradient-to-r from-blue-500 to-indigo-600'
+                        }`}
+                        style={{ width: `${percentage}%` }}
+                      />
+                    </div>
+
+                    {/* Stats */}
+                    <div className="flex gap-4">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle className="h-4 w-4 text-green-600" />
                         <div>
-                          <h3 className="font-medium">{course.title}</h3>
-                          <p className="text-sm text-gray-600">{course.code} • {course.semester}</p>
+                          <div className="text-xs text-gray-600">Present</div>
+                          <div className="text-sm font-bold text-gray-900">{presentClasses}/{totalClasses}</div>
                         </div>
                       </div>
-                      <div className="text-sm text-gray-600 mt-2">
-                        Instructor: {course.instructor} • My Attendance: <span className={`font-medium ${coursePercentage >= 75 ? 'text-green-600' : coursePercentage >= 60 ? 'text-yellow-600' : 'text-red-600'}`}>{coursePercentage}%</span>
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleSelectCourse(course)}
-                      >
-                        <Calendar className="h-4 w-4 mr-2" />
-                        View Calendar
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleViewStudentHistory(course)}
-                      >
-                        <BarChart3 className="h-4 w-4 mr-2" />
-                        View Details
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })}
-
-              {filteredCourses.length === 0 && (
-                <div className="text-center py-8">
-                  <BookOpen className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No courses found</h3>
-                  <p className="text-gray-600">You are not enrolled in any courses yet.</p>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  // Student History/Details View
-  if (role === 'student' && user && currentView === 'student-history' && selectedCourse) {
-    return (
-      <div className="space-y-6">
-        <PageHeader
-          title={`Attendance Details - ${selectedCourse.title}`}
-          breadcrumb={[
-            { label: 'Attendance', to: '/attendance' },
-            { label: selectedCourse.title },
-            { label: 'Details' }
-          ]}
-          actions={
-            <Button variant="outline" onClick={handleBackToCourses}>
-              <ChevronLeft className="h-4 w-4 mr-2" />
-              Back to Courses
-            </Button>
-          }
-        />
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Course Info */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Course Information</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div>
-                <div className="text-sm text-gray-600">Course Code</div>
-                <div className="font-medium">{selectedCourse.code}</div>
-              </div>
-              <div>
-                <div className="text-sm text-gray-600">Title</div>
-                <div className="font-medium">{selectedCourse.title}</div>
-              </div>
-              <div>
-                <div className="text-sm text-gray-600">Instructor</div>
-                <div className="font-medium">{selectedCourse.instructor}</div>
-              </div>
-              <div>
-                <div className="text-sm text-gray-600">My Attendance</div>
-                <div className="font-medium text-blue-600">{attendancePercentage}%</div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Attendance Statistics */}
-          <Card className="lg:col-span-2">
-            <CardHeader>
-              <CardTitle className="text-lg">Attendance Summary</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-green-600">
-                    {studentAttendance.filter(r => r.status === 'present').length}
-                  </div>
-                  <div className="text-sm text-gray-600">Present</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-red-600">
-                    {studentAttendance.filter(r => r.status === 'absent').length}
-                  </div>
-                  <div className="text-sm text-gray-600">Absent</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-yellow-600">
-                    {studentAttendance.filter(r => r.status === 'late').length}
-                  </div>
-                  <div className="text-sm text-gray-600">Late</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-blue-600">
-                    {studentAttendance.filter(r => r.status === 'excused').length}
-                  </div>
-                  <div className="text-sm text-gray-600">Excused</div>
-                </div>
-              </div>
-
-              {/* Recent Attendance Records */}
-              <div className="space-y-2">
-                <h4 className="font-medium">Recent Attendance</h4>
-                <div className="space-y-1 max-h-64 overflow-y-auto">
-                  {studentAttendance
-                    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-                    .slice(0, 10)
-                    .map((record, index) => (
-                      <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                        <div className="text-sm">
-                          {new Date(record.date).toLocaleDateString()}
+                      <div className="flex items-center gap-2">
+                        <Calendar className="h-4 w-4 text-blue-600" />
+                        <div>
+                          <div className="text-xs text-gray-600">Total Classes</div>
+                          <div className="text-sm font-bold text-gray-900">{totalClasses}</div>
                         </div>
-                        <Badge
-                          variant={
-                            record.status === 'present' ? 'success' :
-                            record.status === 'absent' ? 'error' :
-                            record.status === 'late' ? 'secondary' : 'outline'
-                          }
-                          className="capitalize"
-                        >
-                          {record.status}
-                        </Badge>
                       </div>
-                    ))}
-                </div>
-                {studentAttendance.length === 0 && (
-                  <div className="text-center py-4 text-gray-500">
-                    No attendance records found for this course.
+                    </div>
                   </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+
+                  {/* Right Section - Actions & Warnings */}
+                  <div className="flex flex-col justify-between gap-3 md:w-48">
+                    {/* Warning for low attendance */}
+                    {percentage < 70 && (
+                      <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+                        <AlertCircle className="h-4 w-4 text-red-600 mt-0.5 flex-shrink-0" />
+                        <div className="text-xs text-red-700">
+                          <span className="font-medium block">Low Attendance</span>
+                          Below 70% threshold
+                        </div>
+                      </div>
+                    )}
+
+                    {percentage >= 70 && (
+                      <div className="flex items-start gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+                        <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
+                        <div className="text-xs text-green-700">
+                          <span className="font-medium block">Good Standing</span>
+                          Meeting attendance requirements
+                        </div>
+                      </div>
+                    )}
+
+                    {/* View Details Button */}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full group-hover:bg-blue-50 group-hover:border-blue-300 transition-colors mt-auto"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleViewStudentHistory(course);
+                      }}
+                    >
+                      <Eye className="h-4 w-4 mr-2" />
+                      View Details
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
         </div>
+
+        {/* Empty State */}
+        {filteredCourses.length === 0 && (
+          <Card>
+            <CardContent className="text-center py-12">
+              <BookOpen className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No courses found</h3>
+              <p className="text-gray-600">
+                {searchQuery ? 'No courses match your search.' : 'You are not enrolled in any courses yet.'}
+              </p>
+            </CardContent>
+          </Card>
+        )}
       </div>
     );
   }
+
 
   // Fallback for unauthorized users
   return (

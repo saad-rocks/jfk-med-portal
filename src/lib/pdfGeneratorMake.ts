@@ -1,8 +1,5 @@
-import * as pdfMake from 'pdfmake/build/pdfmake';
+import pdfmake from './pdfmakeClient';
 import type { MonthlyReport, TimeEntry } from '../types';
-
-// Initialize pdfmake with default fonts
-const pdfmake = (pdfMake as any).default || pdfMake;
 
 // Professional color scheme
 const colors = {
@@ -300,11 +297,16 @@ export function generateMonthlyTimeReportMake(report: MonthlyReport): void {
               { text: 'Type', style: 'tableHeader', fillColor: colors.primary }
             ],
             // Data rows
-            ...report.dailyEntries.map((entry: TimeEntry) => [
-              {
-                text: new Date(entry.date).toLocaleDateString(),
-                style: 'tableCell'
-              },
+            ...report.dailyEntries.map((entry: TimeEntry) => {
+              // Parse date string as local date to avoid timezone issues
+              const [year, month, day] = entry.date.split('-').map(Number);
+              const localDate = new Date(year, month - 1, day);
+
+              return [
+                {
+                  text: localDate.toLocaleDateString(),
+                  style: 'tableCell'
+                },
               {
                 text: entry.clockIn ? new Date(entry.clockIn).toLocaleTimeString() : 'N/A',
                 style: 'tableCell'
@@ -318,11 +320,12 @@ export function generateMonthlyTimeReportMake(report: MonthlyReport): void {
                 style: 'tableCell',
                 bold: true
               },
-              {
-                text: entry.isManual ? 'Manual' : 'Auto',
-                style: 'tableCell'
-              }
-            ])
+                {
+                  text: entry.isManual ? 'Manual' : 'Auto',
+                  style: 'tableCell'
+                }
+              ];
+            })
           ]
         },
         layout: {
@@ -393,7 +396,10 @@ export function generateTimeSheetMake(entries: TimeEntry[], userName: string, st
       // Group entries by date
       ...Object.entries(
         entries.reduce((groups: any, entry) => {
-          const date = new Date(entry.date).toLocaleDateString();
+          // Parse date string as local date to avoid timezone issues
+          const [year, month, day] = entry.date.split('-').map(Number);
+          const localDate = new Date(year, month - 1, day);
+          const date = localDate.toLocaleDateString();
           if (!groups[date]) groups[date] = [];
           groups[date].push(entry);
           return groups;

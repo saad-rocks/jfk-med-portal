@@ -2,8 +2,11 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { httpsCallable } from "firebase/functions";
+import { functions } from "../../firebase";
 import { useRole } from "../../hooks/useRole";
 import { useToast } from "../../hooks/useToast";
+import { useSystemSettings } from "../../hooks/useSystemSettings";
 import { getUserByUid, updateUser } from "../../lib/users";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
@@ -23,7 +26,13 @@ import {
   Database,
   Key,
   Lock,
-  Activity
+  Activity,
+  HardDrive,
+  Users,
+  FileText,
+  Download,
+  LogOut,
+  Clock
 } from "lucide-react";
 
 const profileSchema = z.object({
@@ -48,11 +57,19 @@ type PasswordFormData = z.infer<typeof passwordSchema>;
 export function AdminSettings() {
   const { user, refreshProfile } = useRole();
   const { push } = useToast();
+  const { settings: systemSettings, updateSettings } = useSystemSettings();
   const [userProfile, setUserProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
+
+  // Additional state for admin functions
+  const [activeSessions, setActiveSessions] = useState<any[]>([]);
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [loadingSessions, setLoadingSessions] = useState(false);
+  const [loadingLogs, setLoadingLogs] = useState(false);
+  const [backupStatus, setBackupStatus] = useState<string>("idle");
 
   // Notification preferences state
   const [notifications, setNotifications] = useState({
@@ -62,16 +79,6 @@ export function AdminSettings() {
     maintenanceUpdates: true,
     backupStatus: true,
     emailNotifications: true,
-  });
-
-  // System settings state
-  const [systemSettings, setSystemSettings] = useState({
-    maintenanceMode: false,
-    allowRegistration: true,
-    emailVerification: true,
-    twoFactorAuth: false,
-    sessionTimeout: 30, // minutes
-    maxLoginAttempts: 5,
   });
 
   const profileForm = useForm<ProfileFormData>({
@@ -180,13 +187,25 @@ export function AdminSettings() {
     });
   };
 
-  const updateSystemSetting = (key: string, value: any) => {
-    setSystemSettings(prev => ({ ...prev, [key]: value }));
-    push({
-      title: "System Settings Updated",
-      description: "System configuration saved",
-      variant: "success",
-    });
+  const updateSystemSetting = async (key: string, value: any) => {
+    try {
+      setSaving(true);
+      await updateSettings({ [key]: value });
+      push({
+        title: "System Settings Updated",
+        description: "System configuration saved successfully",
+        variant: "success",
+      });
+    } catch (error: any) {
+      console.error("Error updating system setting:", error);
+      push({
+        title: "Error",
+        description: error.message || "Failed to update system settings",
+        variant: "error",
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const getPermissionsList = () => {
@@ -197,6 +216,105 @@ export function AdminSettings() {
       ];
     }
     return userProfile?.permissions || ['user_management'];
+  };
+
+  // Trigger database backup
+  const handleBackup = async () => {
+    try {
+      setBackupStatus("processing");
+      const backupFn = httpsCallable(functions, "triggerDatabaseBackup");
+      const result = await backupFn();
+      const data = result.data as any;
+
+      if (data.ok) {
+        push({
+          title: "Backup Initiated",
+          description: data.message,
+          variant: "success",
+        });
+        setBackupStatus("success");
+      }
+    } catch (error: any) {
+      console.error("Backup error:", error);
+      push({
+        title: "Backup Failed",
+        description: error.message || "Failed to trigger backup",
+        variant: "error",
+      });
+      setBackupStatus("error");
+    }
+  };
+
+  // Fetch active sessions
+  const fetchActiveSessions = async () => {
+    try {
+      setLoadingSessions(true);
+      const sessionsFn = httpsCallable(functions, "getActiveSessions");
+      const result = await sessionsFn();
+      const data = result.data as any;
+
+      if (data.ok) {
+        setActiveSessions(data.sessions || []);
+      }
+    } catch (error: any) {
+      console.error("Error fetching sessions:", error);
+      push({
+        title: "Error",
+        description: "Failed to fetch active sessions",
+        variant: "error",
+      });
+    } finally {
+      setLoadingSessions(false);
+    }
+  };
+
+  // Force logout user
+  const handleForceLogout = async (uid: string) => {
+    try {
+      const logoutFn = httpsCallable(functions, "forceLogoutUser");
+      const result = await logoutFn({ uid });
+      const data = result.data as any;
+
+      if (data.ok) {
+        push({
+          title: "Success",
+          description: data.message,
+          variant: "success",
+        });
+        // Refresh sessions list
+        fetchActiveSessions();
+      }
+    } catch (error: any) {
+      console.error("Force logout error:", error);
+      push({
+        title: "Error",
+        description: error.message || "Failed to logout user",
+        variant: "error",
+      });
+    }
+  };
+
+  // Fetch audit logs
+  const fetchAuditLogs = async () => {
+    try {
+      setLoadingLogs(true);
+      const logsFn = httpsCallable(functions, "getAuditLogs");
+      const result = await logsFn({ limit: 50 });
+      const data = result.data as any;
+
+      if (data.ok) {
+        setAuditLogs(data.logs || []);
+      }
+    } catch (error: any) {
+      console.error("Error fetching audit logs:", error);
+      push({
+        title: "Error",
+        description: "Failed to fetch audit logs",
+        variant: "error",
+      });
+    } finally {
+      setLoadingLogs(false);
+    }
   };
 
   if (loading) {
@@ -223,22 +341,34 @@ export function AdminSettings() {
       </div>
 
       <Tabs defaultValue="profile">
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="profile" className="flex items-center gap-2">
-            <User className="w-4 h-4" />
-            Profile
+        <TabsList className="grid w-full grid-cols-7 text-xs md:text-sm">
+          <TabsTrigger value="profile" className="flex items-center gap-1 md:gap-2">
+            <User className="w-3 h-3 md:w-4 md:h-4" />
+            <span className="hidden md:inline">Profile</span>
           </TabsTrigger>
-          <TabsTrigger value="system" className="flex items-center gap-2">
-            <Database className="w-4 h-4" />
-            System
+          <TabsTrigger value="system" className="flex items-center gap-1 md:gap-2">
+            <Database className="w-3 h-3 md:w-4 md:h-4" />
+            <span className="hidden md:inline">System</span>
           </TabsTrigger>
-          <TabsTrigger value="notifications" className="flex items-center gap-2">
-            <Bell className="w-4 h-4" />
-            Notifications
+          <TabsTrigger value="backup" className="flex items-center gap-1 md:gap-2">
+            <HardDrive className="w-3 h-3 md:w-4 md:h-4" />
+            <span className="hidden md:inline">Backup</span>
           </TabsTrigger>
-          <TabsTrigger value="security" className="flex items-center gap-2">
-            <Shield className="w-4 h-4" />
-            Security
+          <TabsTrigger value="sessions" className="flex items-center gap-1 md:gap-2">
+            <Users className="w-3 h-3 md:w-4 md:h-4" />
+            <span className="hidden md:inline">Sessions</span>
+          </TabsTrigger>
+          <TabsTrigger value="audit" className="flex items-center gap-1 md:gap-2">
+            <FileText className="w-3 h-3 md:w-4 md:h-4" />
+            <span className="hidden md:inline">Audit</span>
+          </TabsTrigger>
+          <TabsTrigger value="notifications" className="flex items-center gap-1 md:gap-2">
+            <Bell className="w-3 h-3 md:w-4 md:h-4" />
+            <span className="hidden md:inline">Alerts</span>
+          </TabsTrigger>
+          <TabsTrigger value="security" className="flex items-center gap-1 md:gap-2">
+            <Shield className="w-3 h-3 md:w-4 md:h-4" />
+            <span className="hidden md:inline">Security</span>
           </TabsTrigger>
         </TabsList>
 
@@ -442,9 +572,10 @@ export function AdminSettings() {
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={systemSettings.maintenanceMode}
+                      checked={systemSettings?.maintenanceMode || false}
                       onChange={(e) => updateSystemSetting('maintenanceMode', e.target.checked)}
                       className="sr-only peer"
+                      disabled={saving}
                     />
                     <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600"></div>
                   </label>
@@ -458,9 +589,10 @@ export function AdminSettings() {
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={systemSettings.allowRegistration}
+                      checked={systemSettings?.allowRegistration || false}
                       onChange={(e) => updateSystemSetting('allowRegistration', e.target.checked)}
                       className="sr-only peer"
+                      disabled={saving}
                     />
                     <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
                   </label>
@@ -474,9 +606,10 @@ export function AdminSettings() {
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={systemSettings.emailVerification}
+                      checked={systemSettings?.emailVerification || false}
                       onChange={(e) => updateSystemSetting('emailVerification', e.target.checked)}
                       className="sr-only peer"
+                      disabled={saving}
                     />
                     <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
                   </label>
@@ -490,9 +623,10 @@ export function AdminSettings() {
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={systemSettings.twoFactorAuth}
+                      checked={systemSettings?.twoFactorAuth || false}
                       onChange={(e) => updateSystemSetting('twoFactorAuth', e.target.checked)}
                       className="sr-only peer"
+                      disabled={saving}
                     />
                     <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
                   </label>
@@ -505,9 +639,10 @@ export function AdminSettings() {
                     Session Timeout (minutes)
                   </label>
                   <select
-                    value={systemSettings.sessionTimeout}
+                    value={systemSettings?.sessionTimeout || 30}
                     onChange={(e) => updateSystemSetting('sessionTimeout', parseInt(e.target.value))}
                     className="w-full border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500/60 focus:border-blue-500"
+                    disabled={saving}
                   >
                     <option value="15">15 minutes</option>
                     <option value="30">30 minutes</option>
@@ -522,9 +657,10 @@ export function AdminSettings() {
                     Max Login Attempts
                   </label>
                   <select
-                    value={systemSettings.maxLoginAttempts}
+                    value={systemSettings?.maxLoginAttempts || 5}
                     onChange={(e) => updateSystemSetting('maxLoginAttempts', parseInt(e.target.value))}
                     className="w-full border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500/60 focus:border-blue-500"
+                    disabled={saving}
                   >
                     <option value="3">3 attempts</option>
                     <option value="5">5 attempts</option>
@@ -679,6 +815,188 @@ export function AdminSettings() {
                   </label>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="backup" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <HardDrive className="w-5 h-5" />
+                Database Backup Management
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5" />
+                  <div>
+                    <h4 className="font-medium text-blue-900">About Database Backups</h4>
+                    <p className="text-sm text-blue-700 mt-1">
+                      Database backups create a snapshot of all system data. Regular backups ensure data recovery in case of system failures.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="border rounded-lg p-4">
+                  <h4 className="font-medium text-gray-900 mb-2">Last Backup</h4>
+                  <p className="text-sm text-gray-600">
+                    {systemSettings?.lastBackupDate
+                      ? new Date(systemSettings.lastBackupDate.seconds * 1000).toLocaleString()
+                      : "Never"}
+                  </p>
+                </div>
+
+                <div className="border rounded-lg p-4">
+                  <h4 className="font-medium text-gray-900 mb-2">Backup Status</h4>
+                  <Badge
+                    variant={backupStatus === "success" ? "default" : backupStatus === "error" ? "destructive" : "outline"}
+                  >
+                    {backupStatus === "idle" ? "Ready" : backupStatus === "processing" ? "Processing..." : backupStatus === "success" ? "Success" : "Error"}
+                  </Badge>
+                </div>
+              </div>
+
+              <div className="flex justify-center pt-4">
+                <Button
+                  onClick={handleBackup}
+                  disabled={backupStatus === "processing"}
+                  className="flex items-center gap-2"
+                >
+                  {backupStatus === "processing" ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Processing Backup...
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-4 h-4" />
+                      Trigger Backup Now
+                    </>
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="sessions" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="w-5 h-5" />
+                  Active User Sessions
+                </CardTitle>
+                <Button
+                  onClick={fetchActiveSessions}
+                  variant="outline"
+                  size="sm"
+                  disabled={loadingSessions}
+                >
+                  {loadingSessions ? "Loading..." : "Refresh"}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {activeSessions.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <Users className="w-12 h-12 mx-auto mb-3 text-gray-400" />
+                  <p>No active sessions found</p>
+                  <p className="text-sm mt-1">Click refresh to check for active users</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {activeSessions.map((session: any, index: number) => (
+                    <div key={index} className="border rounded-lg p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <h4 className="font-medium text-gray-900">{session.name}</h4>
+                            <Badge variant="outline">{session.role}</Badge>
+                          </div>
+                          <p className="text-sm text-gray-600">{session.email}</p>
+                          <div className="flex items-center gap-2 mt-2 text-sm text-gray-500">
+                            <Clock className="w-4 h-4" />
+                            <span>Active for {session.sessionDuration} minutes</span>
+                          </div>
+                        </div>
+                        {session.uid !== user?.uid && (
+                          <Button
+                            onClick={() => handleForceLogout(session.uid)}
+                            variant="outline"
+                            size="sm"
+                            className="text-red-600 hover:bg-red-50"
+                          >
+                            <LogOut className="w-4 h-4 mr-1" />
+                            Force Logout
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="audit" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="w-5 h-5" />
+                  Audit Logs
+                </CardTitle>
+                <Button
+                  onClick={fetchAuditLogs}
+                  variant="outline"
+                  size="sm"
+                  disabled={loadingLogs}
+                >
+                  {loadingLogs ? "Loading..." : "Refresh"}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {auditLogs.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <FileText className="w-12 h-12 mx-auto mb-3 text-gray-400" />
+                  <p>No audit logs found</p>
+                  <p className="text-sm mt-1">Click refresh to load recent audit logs</p>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-[500px] overflow-y-auto">
+                  {auditLogs.map((log: any) => (
+                    <div key={log.id} className="border rounded-lg p-3 text-sm">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <Badge variant="outline" className="text-xs">
+                              {log.action?.replace(/_/g, ' ')}
+                            </Badge>
+                            <span className="text-xs text-gray-500">
+                              {log.timestamp?.toDate ? log.timestamp.toDate().toLocaleString() : 'N/A'}
+                            </span>
+                          </div>
+                          <p className="text-gray-700">
+                            Performed by: <span className="font-medium">{log.performedByEmail || 'Unknown'}</span>
+                          </p>
+                          {log.details && (
+                            <p className="text-gray-600 mt-1 text-xs">
+                              {JSON.stringify(log.details, null, 2)}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

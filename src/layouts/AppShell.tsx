@@ -1,4 +1,4 @@
-import { Menu, Bell, Search, Settings, LogOut, Home, BookOpen, ClipboardList, GraduationCap, Users, Layers, CalendarCheck, FileText, Sun, User, Stethoscope, Heart, UserCheck, Calendar, Clock } from "lucide-react";
+import { Menu, Bell, Search, Settings, LogOut, Home, BookOpen, ClipboardList, GraduationCap, Users, Layers, CalendarCheck, FileText, Sun, User, Stethoscope, Heart, UserCheck, Calendar, Clock, Award } from "lucide-react";
 import { Link, NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useState, useEffect, Suspense, lazy, useCallback, useMemo, memo } from "react";
 import { signOut } from "firebase/auth";
@@ -183,7 +183,11 @@ function AppShell() {
 
                 <SidebarLink to="/" icon={<Home size={18} />} label="Dashboard" />
                 <SidebarLink to="/courses" icon={<BookOpen size={18} />} label="Courses" />
-                <SidebarLink to="/enrollments" icon={<Users size={18} />} label="Enrollments" />
+                {role === 'student' ? (
+                  <SidebarLink to="/grades" icon={<Award size={18} />} label="My Grades" />
+                ) : (
+                  <SidebarLink to="/enrollments" icon={<Users size={18} />} label="Enrollments" />
+                )}
                 {/* Debug: Current role is {role} */}
                 {role === 'admin' ? (
                   <>

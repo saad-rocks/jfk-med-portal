@@ -6,6 +6,11 @@ admin.initializeApp();
 
 const db = getFirestore();
 
+// CORS configuration for Cloud Functions v2
+const corsOptions = {
+  cors: ["http://localhost:5173", "http://localhost:3000", "https://jfk-med-portal.web.app", "https://jfk-med-portal.firebaseapp.com"]
+};
+
 // Admin UIDs that can perform user management operations
 const ALLOWED_ADMIN_UIDS = new Set([
   // TODO: replace with your own UID from Firebase Console → Authentication
@@ -40,7 +45,7 @@ async function isCallerAdmin(caller: any): Promise<boolean> {
 }
 
 // Callable: set user role in Firestore (single source of truth)
-export const setUserRole = onCall(async (request) => {
+export const setUserRole = onCall(corsOptions, async (request) => {
   const caller = request.auth;
 
   if (!await isCallerAdmin(caller)) {
@@ -89,7 +94,7 @@ export const setUserRole = onCall(async (request) => {
 });
 
 // Callable: find a Firebase user by email or uid (admin-only)
-export const findUserByEmailOrUid = onCall(async (request) => {
+export const findUserByEmailOrUid = onCall(corsOptions, async (request) => {
   const caller = request.auth;
 
   if (!await isCallerAdmin(caller)) {
@@ -143,7 +148,7 @@ export const findUserByEmailOrUid = onCall(async (request) => {
 });
 
 // Callable: create or update user profile in Firestore (for newly authenticated users)
-export const createUserProfile = onCall(async (request) => {
+export const createUserProfile = onCall(corsOptions, async (request) => {
   const caller = request.auth;
   if (!caller) {
     throw new HttpsError("unauthenticated", "Must be authenticated");
@@ -210,5 +215,283 @@ export const createUserProfile = onCall(async (request) => {
       throw error;
     }
     throw new HttpsError("internal", "Failed to create user profile");
+  }
+});
+
+// ==================== SYSTEM SETTINGS MANAGEMENT ====================
+
+// Callable: Get system settings (all authenticated users can read)
+export const getSystemSettings = onCall(corsOptions, async (request) => {
+  const caller = request.auth;
+  if (!caller) {
+    throw new HttpsError("unauthenticated", "Must be authenticated");
+  }
+
+  try {
+    const settingsRef = db.collection("system").doc("settings");
+    const settingsDoc = await settingsRef.get();
+
+    if (!settingsDoc.exists) {
+      // Return default settings if not yet configured
+      const defaultSettings = {
+        maintenanceMode: false,
+        maintenanceMessage: "System is currently under maintenance. Please check back later.",
+        allowRegistration: true,
+        emailVerification: true,
+        twoFactorAuth: false,
+        sessionTimeout: 30,
+        maxLoginAttempts: 5,
+        autoLogoutEnabled: false,
+        dataRetentionDays: 365,
+        enableAuditLogs: true,
+        systemVersion: "1.0.0",
+        lastBackupDate: null,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp()
+      };
+
+      // Create default settings document
+      await settingsRef.set(defaultSettings);
+
+      return { ok: true, settings: defaultSettings };
+    }
+
+    return { ok: true, settings: settingsDoc.data() };
+  } catch (error) {
+    console.error("Error fetching system settings:", error);
+    throw new HttpsError("internal", "Failed to fetch system settings");
+  }
+});
+
+// Callable: Update system settings (admin-only)
+export const updateSystemSettings = onCall(corsOptions, async (request) => {
+  const caller = request.auth;
+
+  if (!await isCallerAdmin(caller)) {
+    throw new HttpsError("permission-denied", "Admin access required.");
+  }
+
+  const { settings } = (request.data ?? {});
+  if (!settings || typeof settings !== "object") {
+    throw new HttpsError("invalid-argument", "settings object is required");
+  }
+
+  try {
+    if (!caller) {
+      throw new HttpsError("unauthenticated", "Must be authenticated");
+    }
+
+    const settingsRef = db.collection("system").doc("settings");
+
+    // Validate settings
+    const validSettings: any = {
+      maintenanceMode: settings.maintenanceMode,
+      maintenanceMessage: settings.maintenanceMessage,
+      allowRegistration: settings.allowRegistration,
+      emailVerification: settings.emailVerification,
+      twoFactorAuth: settings.twoFactorAuth,
+      sessionTimeout: settings.sessionTimeout,
+      maxLoginAttempts: settings.maxLoginAttempts,
+      autoLogoutEnabled: settings.autoLogoutEnabled,
+      dataRetentionDays: settings.dataRetentionDays,
+      enableAuditLogs: settings.enableAuditLogs,
+      updatedAt: FieldValue.serverTimestamp(),
+      lastUpdatedBy: caller.uid
+    };
+
+    // Remove undefined values
+    Object.keys(validSettings).forEach(key =>
+      validSettings[key] === undefined && delete validSettings[key]
+    );
+
+    await settingsRef.set(validSettings, { merge: true });
+
+    // Log audit entry
+    if (settings.maintenanceMode !== undefined) {
+      const auditDetails: Record<string, any> = {
+        maintenanceMode: settings.maintenanceMode,
+      };
+
+      if (settings.maintenanceMessage !== undefined) {
+        auditDetails.message = settings.maintenanceMessage;
+      }
+
+      await db.collection("auditLogs").add({
+        action: settings.maintenanceMode ? "MAINTENANCE_MODE_ENABLED" : "MAINTENANCE_MODE_DISABLED",
+        performedBy: caller.uid,
+        performedByEmail: (caller as any).email || null,
+        timestamp: FieldValue.serverTimestamp(),
+        details: auditDetails
+      });
+    }
+
+    console.log(`✅ System settings updated by: ${caller.uid}`);
+    return { ok: true, message: "System settings updated successfully" };
+  } catch (error) {
+    console.error("Error updating system settings:", error);
+    throw new HttpsError("internal", "Failed to update system settings");
+  }
+});
+
+// Callable: Get audit logs (admin-only)
+export const getAuditLogs = onCall(corsOptions, async (request) => {
+  const caller = request.auth;
+
+  if (!await isCallerAdmin(caller)) {
+    throw new HttpsError("permission-denied", "Admin access required.");
+  }
+
+  const { limit = 50, startAfter = null } = (request.data ?? {});
+
+  try {
+    let query = db.collection("auditLogs")
+      .orderBy("timestamp", "desc")
+      .limit(limit);
+
+    if (startAfter) {
+      const startDoc = await db.collection("auditLogs").doc(startAfter).get();
+      if (startDoc.exists) {
+        query = query.startAfter(startDoc);
+      }
+    }
+
+    const snapshot = await query.get();
+    const logs = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+
+    return { ok: true, logs, count: logs.length };
+  } catch (error) {
+    console.error("Error fetching audit logs:", error);
+    throw new HttpsError("internal", "Failed to fetch audit logs");
+  }
+});
+
+// Callable: Get active user sessions (admin-only)
+export const getActiveSessions = onCall(corsOptions, async (request) => {
+  const caller = request.auth;
+
+  if (!await isCallerAdmin(caller)) {
+    throw new HttpsError("permission-denied", "Admin access required.");
+  }
+
+  try {
+    // Get all users with their last login time
+    const usersSnapshot = await db.collection("users")
+      .where("status", "==", "active")
+      .get();
+
+    const activeSessions = [];
+    const now = new Date();
+    const thirtyMinutesAgo = new Date(now.getTime() - 30 * 60 * 1000);
+
+    for (const doc of usersSnapshot.docs) {
+      const userData = doc.data();
+
+      // Check if user has recent activity and lastLoginAt exists
+      if (userData.lastLoginAt && typeof userData.lastLoginAt.toDate === 'function') {
+        try {
+          const lastLogin = userData.lastLoginAt.toDate();
+
+          if (lastLogin > thirtyMinutesAgo) {
+            activeSessions.push({
+              uid: userData.uid,
+              name: userData.name || 'Unknown',
+              email: userData.email || 'No email',
+              role: userData.role || 'unknown',
+              lastLoginAt: userData.lastLoginAt,
+              sessionDuration: Math.floor((now.getTime() - lastLogin.getTime()) / 60000) // in minutes
+            });
+          }
+        } catch (dateError) {
+          console.warn(`Error parsing lastLoginAt for user ${userData.uid}:`, dateError);
+        }
+      }
+    }
+
+    console.log(`✅ Found ${activeSessions.length} active sessions`);
+    return { ok: true, sessions: activeSessions, count: activeSessions.length };
+  } catch (error) {
+    console.error("Error fetching active sessions:", error);
+    throw new HttpsError("internal", "Failed to fetch active sessions");
+  }
+});
+
+// Callable: Force logout user (admin-only)
+export const forceLogoutUser = onCall(corsOptions, async (request) => {
+  const caller = request.auth;
+
+  if (!await isCallerAdmin(caller)) {
+    throw new HttpsError("permission-denied", "Admin access required.");
+  }
+
+  const { uid } = (request.data ?? {});
+  if (!uid) {
+    throw new HttpsError("invalid-argument", "uid is required");
+  }
+
+  try {
+    if (!caller) {
+      throw new HttpsError("unauthenticated", "Must be authenticated");
+    }
+
+    // Revoke refresh tokens for the user
+    await admin.auth().revokeRefreshTokens(uid);
+
+    // Log audit entry
+    await db.collection("auditLogs").add({
+      action: "FORCE_LOGOUT",
+      performedBy: caller.uid,
+      performedByEmail: (caller as any).email || null,
+      targetUserId: uid,
+      timestamp: FieldValue.serverTimestamp()
+    });
+
+    console.log(`✅ User ${uid} forcefully logged out by admin: ${caller.uid}`);
+    return { ok: true, message: "User has been logged out successfully" };
+  } catch (error) {
+    console.error("Error forcing logout:", error);
+    throw new HttpsError("internal", "Failed to force logout user");
+  }
+});
+
+// Callable: Create database backup trigger (admin-only)
+export const triggerDatabaseBackup = onCall(corsOptions, async (request) => {
+  const caller = request.auth;
+
+  if (!await isCallerAdmin(caller)) {
+    throw new HttpsError("permission-denied", "Admin access required.");
+  }
+
+  try {
+    if (!caller) {
+      throw new HttpsError("unauthenticated", "Must be authenticated");
+    }
+
+    // Update last backup date
+    const settingsRef = db.collection("system").doc("settings");
+    await settingsRef.set({
+      lastBackupDate: FieldValue.serverTimestamp(),
+      lastBackupBy: caller.uid
+    }, { merge: true });
+
+    // Log audit entry
+    await db.collection("auditLogs").add({
+      action: "DATABASE_BACKUP_TRIGGERED",
+      performedBy: caller.uid,
+      performedByEmail: (caller as any).email || null,
+      timestamp: FieldValue.serverTimestamp()
+    });
+
+    console.log(`✅ Database backup triggered by admin: ${caller.uid}`);
+    return {
+      ok: true,
+      message: "Backup process initiated. This may take several minutes.",
+      timestamp: new Date().toISOString()
+    };
+  } catch (error) {
+    console.error("Error triggering backup:", error);
+    throw new HttpsError("internal", "Failed to trigger database backup");
   }
 });

@@ -7,7 +7,12 @@
       "Bash(npm run lint)",
       "Bash(find:*)",
       "Bash(cmp:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(npm install)",
+      "Bash(firebase deploy:*)",
+      "Bash(firebase functions:list:*)",
+      "Bash(cat:*)",
+      "Bash(firebase functions:log:*)"
     ],
     "deny": [],
     "ask": []

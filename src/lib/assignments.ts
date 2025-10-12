@@ -149,10 +149,11 @@ export async function getOverdueAssignmentsForUser(userId: string): Promise<Arra
     // Resolve to Firestore profile id for enrollment queries
     const identity = await resolveUserIdentity(userId);
     const profileId = identity?.profileId ?? userId;
+    const uid = identity?.uid ?? userId;
     // First get the user's enrollments
     const { listEnrollmentsForStudent } = await import('./enrollments');
     const enrollments = await listEnrollmentsForStudent(profileId);
-    
+
     if (enrollments.length === 0) {
       return [];
     }
@@ -160,7 +161,7 @@ export async function getOverdueAssignmentsForUser(userId: string): Promise<Arra
     // Get all assignments for enrolled courses
     const enrolledCourseIds = enrollments.map(e => e.courseId);
     const allAssignments: Array<Assignment & { id: string }> = [];
-    
+
     for (const courseId of enrolledCourseIds) {
       try {
         const courseAssignments = await listAssignments(courseId);
@@ -170,12 +171,33 @@ export async function getOverdueAssignmentsForUser(userId: string): Promise<Arra
       }
     }
 
-    // Filter assignments that are overdue
+    // Get submissions to filter out submitted assignments
+    const { listSubmissions } = await import('./submissions');
     const now = Date.now();
-    const overdueAssignments = allAssignments.filter(assignment => assignment.dueAt < now);
+    const overdueAssignments: Array<Assignment & { id: string }> = [];
+
+    for (const assignment of allAssignments) {
+      // Only include if past due date
+      if (assignment.dueAt >= now) continue;
+
+      try {
+        // Check if student has submitted
+        const submissions = await listSubmissions(assignment.id!);
+        const hasSubmission = submissions.some(s => s.studentId === uid || s.studentId === profileId);
+
+        // Only add to overdue if not submitted
+        if (!hasSubmission) {
+          overdueAssignments.push(assignment);
+        }
+      } catch (error) {
+        console.error(`Error checking submission for assignment ${assignment.id}:`, error);
+        // If we can't check submission status, include it to be safe
+        overdueAssignments.push(assignment);
+      }
+    }
 
     // Sort by due date (most overdue first)
-    overdueAssignments.sort((a, b) => b.dueAt - a.dueAt);
+    overdueAssignments.sort((a, b) => a.dueAt - b.dueAt);
 
     return overdueAssignments;
   } catch (error) {

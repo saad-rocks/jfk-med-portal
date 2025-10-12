@@ -1,610 +1,722 @@
-import { useEffect, useState } from "react";
-import { httpsCallable } from "firebase/functions";
-import { functions } from "../firebase";
-import { createEnrollment, deleteEnrollment, listEnrollments, type Enrollment, type EnrollmentStatus, updateEnrollmentStatus } from "../lib/enrollments";
+import { useEffect, useMemo, useState } from "react";
+import {
+  createEnrollment,
+  deleteEnrollment,
+  listEnrollments,
+  type Enrollment,
+  type EnrollmentStatus,
+  updateEnrollmentStatus,
+} from "../lib/enrollments";
 import { listCourses } from "../lib/courses";
 import type { Course } from "../types";
-import { getAllUsers } from "../lib/users";
-import type { UserProfile } from "../lib/users";
+import { getAllUsers, type UserProfile } from "../lib/users";
+import { useRole } from "../hooks/useRole";
 import { PageHeader } from "../components/layout/PageHeader";
-import { PageActions } from "../components/layout/PageActions";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
-import { Card, CardHeader, CardContent, CardTitle } from "../components/ui/card";
-import { useRole } from "../hooks/useRole";
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { Badge } from "../components/ui/badge";
+import {
+  BookOpen,
+  GraduationCap,
+  Loader2,
+  Plus,
+  Search,
+  SlidersHorizontal,
+  UserMinus,
+  Users,
+} from "lucide-react";
 
-const SEMESTERS = Array.from({ length: 11 }, (_, i) => `MD-${i + 1}`);
-const STATUSES: EnrollmentStatus[] = ["enrolled", "dropped", "completed"];
+type CourseWithStats = Course & {
+  id: string;
+  total: number;
+  active: number;
+  completed: number;
+  dropped: number;
+};
+
+const SEMESTER_FALLBACK = "MD-1";
 
 export default function Enrollments() {
   const { role, loading } = useRole();
-  const [error, setError] = useState<string | null>(null);
-
-  const [courses, setCourses] = useState<Array<Course & { id: string }>>([]);
-  const [users, setUsers] = useState<Array<UserProfile>>([]);
-  const [enrollments, setEnrollments] = useState<Array<(Enrollment & { id: string })>>([]);
-
-  const [studentSearch, setStudentSearch] = useState<string>("");
-  const [selectedStudentId, setSelectedStudentId] = useState<string>("");
-  const [selectedCourseId, setSelectedCourseId] = useState<string>("");
-  const [selectedSemesterId, setSelectedSemesterId] = useState<string>("MD-1");
-  const [createStatus, setCreateStatus] = useState<EnrollmentStatus>("enrolled");
-  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-
-  const [filterCourseId, setFilterCourseId] = useState<string>("");
-  const [filterSemesterId, setFilterSemesterId] = useState<string>("");
-
   const isAdmin = role === "admin";
 
-  // Create lookup maps for quick name retrieval - with safe fallbacks
-  const studentNameMap = (users || []).reduce((map, user) => {
-    if (user && user.uid && user.name) {
-      map[user.uid] = user.name;
-    }
-    return map;
-  }, {} as Record<string, string>);
+  const [courses, setCourses] = useState<CourseWithStats[]>([]);
+  const [users, setUsers] = useState<UserProfile[]>([]);
+  const [enrollments, setEnrollments] = useState<Array<Enrollment & { id: string }>>([]);
 
-  const courseNameMap = (courses || []).reduce((map, course) => {
-    if (course && course.id && course.code && course.title) {
-      map[course.id] = `${course.code} - ${course.title}`;
-    }
-    return map;
-  }, {} as Record<string, string>);
+  const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
+  const [courseSearch, setCourseSearch] = useState("");
+  const [studentFilter, setStudentFilter] = useState("");
 
-  // Debug logging - wrapped in try-catch to prevent crashes
-  try {
-    console.log('🔍 Debug Info:', {
-      usersCount: users.length,
-      coursesCount: courses.length,
-      enrollmentsCount: enrollments.length,
-      sampleStudentMap: Object.keys(studentNameMap).slice(0, 3),
-      sampleCourseMap: Object.keys(courseNameMap).slice(0, 3),
-      sampleEnrollment: enrollments[0]
-    });
-  } catch (debugError) {
-    console.error('Debug logging error:', debugError);
-  }
+  const [studentSearch, setStudentSearch] = useState("");
+  const [selectedStudentId, setSelectedStudentId] = useState<string>("");
+  const [createStatus, setCreateStatus] = useState<EnrollmentStatus>("enrolled");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!loading) {
-      (async () => {
-        try {
-          console.log('🚀 Starting to load data...');
-          const [cs, us, es] = await Promise.all([
-            listCourses(),
-            getAllUsers(),
-            listEnrollments({}),
-          ]);
-          console.log('✅ Data loaded successfully:', { courses: cs.length, users: us.length, enrollments: es.length });
-          setCourses(cs || []);
-          setUsers(us || []);
-          setEnrollments(es || []);
-        } catch (e: unknown) {
-          const error = e as Error;
-          console.error('❌ Error loading data:', error);
-          setError(error?.message ?? "Failed to load data");
-          // Set empty arrays to prevent crashes
-          setCourses([]);
-          setUsers([]);
-          setEnrollments([]);
+    if (loading) return;
+
+    let mounted = true;
+    (async () => {
+      try {
+        const [courseDocs, userProfiles, enrollmentDocs] = await Promise.all([
+          listCourses(),
+          getAllUsers(),
+          listEnrollments({}),
+        ]);
+
+        if (!mounted) return;
+
+        setUsers(userProfiles || []);
+        setEnrollments(enrollmentDocs || []);
+
+        const statsByCourse: Record<string, Omit<CourseWithStats, keyof Course | "id">> = {};
+        enrollmentDocs.forEach((enrollment) => {
+          if (!statsByCourse[enrollment.courseId]) {
+            statsByCourse[enrollment.courseId] = {
+              total: 0,
+              active: 0,
+              completed: 0,
+              dropped: 0,
+            };
+          }
+          const bucket = statsByCourse[enrollment.courseId];
+          bucket.total += 1;
+          if (enrollment.status === "completed") bucket.completed += 1;
+          else if (enrollment.status === "dropped") bucket.dropped += 1;
+          else bucket.active += 1;
+        });
+
+        setCourses(
+          (courseDocs ?? []).map((course) => {
+            const stats = statsByCourse[course.id] ?? { total: 0, active: 0, completed: 0, dropped: 0 };
+            return { ...course, ...stats };
+          }),
+        );
+
+        if (courseDocs.length > 0) {
+          setSelectedCourseId((current) => current ?? courseDocs[0].id);
         }
-      })();
-    }
+      } catch (err) {
+        console.error("Error loading enrollment data:", err);
+        setError(err instanceof Error ? err.message : "Failed to load enrollment data");
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
   }, [loading]);
 
-  async function handleFindStudent() {
-    setError(null);
-    const value = studentSearch.trim();
-    if (!value) return;
-    if (value.includes("@")) {
-      try {
-        const callable = httpsCallable(functions, "findUserByEmailOrUid");
-        const res = await callable({ emailOrUid: value });
-        setSelectedStudentId((res.data as { uid: string }).uid);
-      } catch (e: unknown) {
-        const error = e as Error;
-        setError(error?.message ?? "User not found");
-      }
-    } else {
-      setSelectedStudentId(value);
+  useEffect(() => {
+    if (!selectedCourseId && courses.length > 0) {
+      setSelectedCourseId(courses[0].id);
     }
+  }, [courses, selectedCourseId]);
+
+  const { studentsById, studentsByUid } = useMemo(() => {
+    const byId: Record<string, UserProfile> = {};
+    const byUid: Record<string, UserProfile> = {};
+    users.forEach((user) => {
+      if (!user) return;
+      if (user.id) {
+        byId[user.id] = user;
+      }
+      if (user.uid) {
+        byUid[user.uid] = user;
+      }
+    });
+    return { studentsById: byId, studentsByUid: byUid };
+  }, [users]);
+
+  const students = useMemo(
+    () => users.filter((user) => user.role === "student" && user.id),
+    [users],
+  );
+
+  const filteredCourses = useMemo(() => {
+    const query = courseSearch.trim().toLowerCase();
+
+    return courses
+      .filter((course) => {
+        if (!query) return true;
+        const combined = `${course.code ?? ""} ${course.title ?? ""}`.toLowerCase();
+        return combined.includes(query);
+      })
+      .sort((a, b) => a.title.localeCompare(b.title));
+  }, [courses, courseSearch]);
+
+  const selectedCourse = useMemo(
+    () => courses.find((course) => course.id === selectedCourseId) ?? null,
+    [courses, selectedCourseId],
+  );
+
+  const enrollmentsForCourse = useMemo(() => {
+    if (!selectedCourseId) return [];
+    return enrollments
+      .filter((enrollment) => enrollment.courseId === selectedCourseId)
+      .map((enrollment) => {
+        const student =
+          studentsById[enrollment.studentId] ?? studentsByUid[enrollment.studentId];
+        const displayName =
+          student?.name && student.name.trim().length > 0
+            ? student.name
+            : student?.email ?? enrollment.studentId;
+        return {
+          ...enrollment,
+          student,
+          resolvedStudentId: student?.id ?? enrollment.studentId,
+          displayName,
+          displayEmail: student?.email ?? "",
+        };
+      })
+      .sort((a, b) => a.displayName.localeCompare(b.displayName));
+  }, [enrollments, selectedCourseId, studentsById, studentsByUid]);
+
+  const filteredEnrollments = useMemo(() => {
+    const query = studentFilter.trim().toLowerCase();
+    if (!query) return enrollmentsForCourse;
+
+    return enrollmentsForCourse.filter((enrollment) => {
+      const composite = `${enrollment.displayName} ${enrollment.resolvedStudentId} ${enrollment.displayEmail}`.toLowerCase();
+      return composite.includes(query);
+    });
+  }, [enrollmentsForCourse, studentFilter]);
+
+  const suggestedStudents = useMemo(() => {
+    if (!selectedCourseId) return [];
+    const enrolledSet = new Set(
+      enrollmentsForCourse.map((enrollment) => enrollment.resolvedStudentId),
+    );
+    const query = studentSearch.trim().toLowerCase();
+
+    return students
+      .filter((student) => student.id)
+      .filter((student) => !enrolledSet.has(student.id ?? ""))
+      .filter((student) => {
+        if (!query) return true;
+        const composite = `${student.name ?? ""} ${student.email ?? ""} ${student.uid ?? ""} ${student.id ?? ""}`.toLowerCase();
+        return composite.includes(query);
+      })
+      .slice(0, 8);
+  }, [students, enrollmentsForCourse, selectedCourseId, studentSearch]);
+
+  function resetMessages() {
+    setFeedback(null);
+    setError(null);
   }
 
-  async function handleCreateEnrollment(e: React.FormEvent) {
-    e.preventDefault();
-    if (!isAdmin || isSubmitting) return;
-    
-    if (!selectedStudentId || !selectedCourseId) {
-      setError("Please select both a student and a course");
+  function handleFindStudent() {
+    resetMessages();
+    const value = studentSearch.trim();
+    if (!value) return;
+
+    const normalized = value.toLowerCase();
+    const match = students.find((student) => {
+      const docId = student.id?.toLowerCase();
+      const uid = student.uid?.toLowerCase();
+      const email = student.email?.toLowerCase();
+      const name = student.name?.toLowerCase();
+      return (
+        (docId && docId === normalized) ||
+        (uid && uid === normalized) ||
+        (email && email === normalized) ||
+        (name && name.includes(normalized))
+      );
+    });
+
+    if (!match?.id) {
+      setError("Student not found in the portal. Only registered students can be enrolled.");
       return;
     }
-    
-    setError(null);
+
+    setSelectedStudentId(match.id);
+    setStudentSearch(match.email ?? match.name ?? match.id);
+    setFeedback("Student located. Ready to enroll.");
+  }
+
+  async function handleCreateEnrollment(e?: React.FormEvent) {
+    e?.preventDefault();
+    resetMessages();
+
+    if (!isAdmin) {
+      setError("Only administrators can manage enrollments.");
+      return;
+    }
+
+    if (!selectedCourse || !selectedCourseId) {
+      setError("Select a course first.");
+      return;
+    }
+
+    if (!selectedStudentId) {
+      setError("Select or search for a student to enroll.");
+      return;
+    }
+
+    const studentRecord =
+      studentsById[selectedStudentId] ?? studentsByUid[selectedStudentId];
+    if (!studentRecord?.id) {
+      setError("Selected student is not registered on the portal.");
+      return;
+    }
+
+    const alreadyEnrolled = enrollmentsForCourse.some(
+      (enrollment) => enrollment.resolvedStudentId === studentRecord.id,
+    );
+    if (alreadyEnrolled) {
+      setError("This student is already enrolled in the course.");
+      return;
+    }
+
     setIsSubmitting(true);
-    
+
     try {
-      await createEnrollment({
-        studentId: selectedStudentId,
+      const newId = await createEnrollment({
+        studentId: studentRecord.id,
         courseId: selectedCourseId,
-        semesterId: selectedSemesterId,
+        semesterId: selectedCourse.semester ?? SEMESTER_FALLBACK,
         status: createStatus,
       });
-      const [es, us] = await Promise.all([
-        listEnrollments({ courseId: filterCourseId || undefined, semesterId: filterSemesterId || undefined }),
-        getAllUsers()
-      ]);
-      setEnrollments(es);
-      setUsers(us);
-      setSelectedCourseId("");
-      setSelectedSemesterId("MD-1");
-      setCreateStatus("enrolled");
+
+      const enrollmentRecord: Enrollment & { id: string } = {
+        id: newId,
+        studentId: studentRecord.id,
+        courseId: selectedCourseId,
+        semesterId: selectedCourse.semester ?? SEMESTER_FALLBACK,
+        status: createStatus,
+        enrolledAt: Date.now(),
+        createdAt: Date.now(),
+      };
+
+      setEnrollments((prev) => [...prev, enrollmentRecord]);
       setSelectedStudentId("");
       setStudentSearch("");
-    } catch (e: unknown) {
-      const error = e as Error;
-      setError(error?.message ?? "Failed to create enrollment");
+      setCreateStatus("enrolled");
+      setFeedback("Student enrolled successfully.");
+    } catch (err) {
+      console.error("Failed to create enrollment:", err);
+      setError(err instanceof Error ? err.message : "Failed to create enrollment");
     } finally {
       setIsSubmitting(false);
     }
   }
 
-  async function handleUpdateStatus(id: string, status: EnrollmentStatus) {
+  async function handleRemoveEnrollment(enrollmentId: string) {
+    resetMessages();
+    if (!isAdmin) {
+      setError("Only administrators can manage enrollments.");
+      return;
+    }
+
+    setIsSubmitting(true);
     try {
-      await updateEnrollmentStatus(id, status);
-      const es = await listEnrollments({ courseId: filterCourseId || undefined, semesterId: filterSemesterId || undefined });
-      setEnrollments(es);
-    } catch (e: unknown) {
-      const error = e as Error;
-      setError(error?.message ?? "Failed to update status");
+      await deleteEnrollment(enrollmentId);
+      setEnrollments((prev) => prev.filter((enrollment) => enrollment.id !== enrollmentId));
+      setFeedback("Student removed from course.");
+    } catch (err) {
+      console.error("Failed to delete enrollment:", err);
+      setError(err instanceof Error ? err.message : "Failed to remove student");
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
-  async function handleDelete(id: string) {
-    try {
-      await deleteEnrollment(id);
-      const es = await listEnrollments({ courseId: filterCourseId || undefined, semesterId: filterSemesterId || undefined });
-      setEnrollments(es);
-    } catch (e: unknown) {
-      const error = e as Error;
-      setError(error?.message ?? "Failed to delete enrollment");
+  async function handleUpdateStatus(enrollmentId: string, status: EnrollmentStatus) {
+    resetMessages();
+    if (!isAdmin) {
+      setError("Only administrators can manage enrollments.");
+      return;
     }
-  }
 
-  async function applyFilters() {
-    const es = await listEnrollments({ courseId: filterCourseId || undefined, semesterId: filterSemesterId || undefined });
-    setEnrollments(es);
+    try {
+      await updateEnrollmentStatus(enrollmentId, status);
+      setEnrollments((prev) =>
+        prev.map((enrollment) => (enrollment.id === enrollmentId ? { ...enrollment, status } : enrollment)),
+      );
+      setFeedback("Enrollment status updated.");
+    } catch (err) {
+      console.error("Failed to update enrollment:", err);
+      setError(err instanceof Error ? err.message : "Failed to update enrollment");
+    }
   }
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="flex items-center gap-3">
-          <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
-          <span className="text-gray-600">Loading enrollments...</span>
+      <div className="flex h-[400px] items-center justify-center">
+        <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-6 py-4 shadow-sm">
+          <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+          <span className="text-slate-600">Loading enrollment dashboard…</span>
         </div>
       </div>
     );
   }
 
-  // Error boundary for rendering issues
-  try {
-
   if (!isAdmin) {
     return (
-      <div className="p-6">
-        <div className="text-center py-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-red-100 rounded-2xl mb-4">
-            <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
-            </svg>
-          </div>
-          <h3 className="text-lg font-semibold text-gray-800 mb-2">Access Denied</h3>
-          <p className="text-gray-600">You need admin privileges to access the enrollments page.</p>
-        </div>
+      <div className="space-y-6">
+        <PageHeader title="Enrollments" breadcrumb={[{ label: "Home", to: "/" }, { label: "Enrollments" }]} />
+        <p className="text-sm text-slate-600">
+          Manage course enrollments for students across the program.
+        </p>
+        <Card>
+          <CardHeader>
+            <CardTitle>Access Restricted</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-slate-600">
+              You need administrative privileges to manage enrollments. Contact your system administrator if you need
+              access.
+            </p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <PageHeader
-        title="Enrollments"
-        breadcrumb={[{ label: 'Home', to: '/' }, { label: 'Enrollments' }]}
-        actions={<PageActions><Button variant="outline" onClick={() => document.querySelector('#assign-form')?.scrollIntoView({ behavior: 'smooth' })}>Assign Student</Button></PageActions>}
-      />
-      {error && (
-        <div className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-red-50 to-pink-50 border border-red-200 shadow-soft">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl bg-red-100 flex items-center justify-center">
-              <svg className="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
-              </svg>
-            </div>
-            <div>
-              <h4 className="font-semibold text-red-800">Error</h4>
-              <p className="text-sm text-red-700">{error}</p>
-            </div>
-          </div>
+    <div className="space-y-6">
+      <PageHeader title="Enrollments" breadcrumb={[{ label: "Home", to: "/" }, { label: "Enrollments" }]} />
+      <p className="text-sm text-slate-600">
+        View courses, track enrollment status, and manage student assignments in one place.
+      </p>
+
+      {(error || feedback) && (
+        <div
+          className={`rounded-xl border px-4 py-3 text-sm shadow-sm ${
+            error ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"
+          }`}
+        >
+          {error ?? feedback}
         </div>
       )}
 
-      <Card id="assign-form" className="mb-8">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-r from-blue-500 to-teal-500 flex items-center justify-center">
-              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-              </svg>
-            </div>
-            Assign Student to Course
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleCreateEnrollment} className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Student Search */}
-              <div className="space-y-3">
-                <label className="block text-sm font-semibold text-slate-700">
-                  Student (UID or Email)
-                </label>
-                <div className="flex gap-3">
-                  <div className="flex-1">
-                    <Input
-                      value={studentSearch}
-                      onChange={(e) => setStudentSearch(e.target.value)}
-                      placeholder="Enter student UID or email address"
-                      className="h-12"
-                    />
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,340px),minmax(0,1fr)]">
+        <section className="space-y-4">
+          <Card className="shadow-soft border-slate-200">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base font-semibold text-slate-800">
+                <BookOpen className="h-5 w-5 text-blue-600" />
+                Courses
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                <Input
+                  value={courseSearch}
+                  onChange={(event) => setCourseSearch(event.target.value)}
+                  placeholder="Search courses by code or title…"
+                  className="pl-10"
+                />
+              </div>
+
+              <div className="max-h-[560px] space-y-3 overflow-y-auto pr-1">
+                {filteredCourses.length === 0 && (
+                  <div className="rounded-lg border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">
+                    No courses found. Adjust your search.
                   </div>
-                  <Button
-                    type="button"
-                    onClick={handleFindStudent}
-                    variant="outline"
-                    size="md"
-                    className="h-12 px-6 whitespace-nowrap"
-                  >
-                    Find Student
-                  </Button>
+                )}
+
+                {filteredCourses.map((course) => {
+                  const isActive = course.id === selectedCourseId;
+                  return (
+                    <button
+                      key={course.id}
+                      onClick={() => setSelectedCourseId(course.id)}
+                      className={`w-full rounded-xl border px-4 py-3 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-blue-200 ${
+                        isActive
+                          ? "border-blue-500 bg-blue-50/70"
+                          : "border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50/40"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{course.code}</p>
+                          <p className="mt-1 text-sm font-semibold text-slate-900">{course.title}</p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <Badge variant="secondary" className="flex items-center gap-1 text-xs font-semibold">
+                              <Users className="h-3 w-3" />
+                              {course.total} enrolled
+                            </Badge>
+                            <Badge variant="success" className="text-xs">
+                              Active {course.active}
+                            </Badge>
+                            {course.completed > 0 && (
+                              <Badge variant="outline" className="text-xs">
+                                Completed {course.completed}
+                              </Badge>
+                            )}
+                            {course.dropped > 0 && (
+                              <Badge variant="destructive" className="text-xs">
+                                Dropped {course.dropped}
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                        <Badge variant="outline" className="mt-1 text-xs font-medium">
+                          {course.semester ?? SEMESTER_FALLBACK}
+                        </Badge>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-slate-200 bg-gradient-to-br from-blue-50/60 via-white to-emerald-50/60 shadow-soft">
+            <CardContent className="space-y-4 py-5">
+              <div className="flex items-start gap-3">
+                <div className="rounded-xl bg-blue-100 p-3">
+                  <GraduationCap className="h-5 w-5 text-blue-700" />
                 </div>
-                {selectedStudentId && (
-                  <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-xl">
-                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                    <span className="text-sm font-medium text-green-700">
-                      Selected: {selectedStudentId}
-                    </span>
-                  </div>
+                <div>
+                  <p className="text-sm font-semibold text-slate-800">Program Snapshot</p>
+                  <p className="mt-1 text-sm text-slate-600">
+                    {courses.length} courses, {students.length} students loaded
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="rounded-lg border border-slate-200/80 bg-white px-3 py-2">
+                  <p className="text-xs text-slate-500">Most Enrolled Course</p>
+                  <p className="truncate font-semibold text-slate-900">
+                    {courses.length > 0
+                      ? courses.reduce((prev, current) => (current.total > prev.total ? current : prev)).title
+                      : "—"}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-slate-200/80 bg-white px-3 py-2">
+                  <p className="text-xs text-slate-500">Active Enrollments</p>
+                  <p className="font-semibold text-slate-900">
+                    {enrollments.filter((enrollment) => enrollment.status === "enrolled").length}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+
+        <section className="space-y-4">
+          <Card className="shadow-soft border-slate-200">
+            <CardHeader className="flex flex-col gap-2 border-b border-slate-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-lg font-semibold text-slate-900">
+                  <Users className="h-5 w-5 text-blue-600" />
+                  {selectedCourse ? selectedCourse.title : "Select a course"}
+                </CardTitle>
+                {selectedCourse && (
+                  <p className="text-sm text-slate-600">
+                    {selectedCourse.code} • Semester {selectedCourse.semester ?? SEMESTER_FALLBACK}
+                  </p>
                 )}
               </div>
+              {selectedCourse && (
+                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                  <Badge variant="success">Active {selectedCourse.active}</Badge>
+                  <Badge variant="outline">Completed {selectedCourse.completed}</Badge>
+                  <Badge variant="destructive">Dropped {selectedCourse.dropped}</Badge>
+                </div>
+              )}
+            </CardHeader>
 
-              {/* Course Selection */}
-              <div className="space-y-3">
-                <label className="block text-sm font-semibold text-slate-700">
-                  Course
-                </label>
-                <select 
-                  className="w-full h-12 border-2 border-slate-200 rounded-xl px-4 bg-white/50 backdrop-blur-sm focus:border-blue-400 focus:bg-white transition-all duration-300 hover:border-slate-300"
-                  value={selectedCourseId} 
-                  onChange={(e) => setSelectedCourseId(e.target.value)}
-                >
-                  <option value="">Select a course...</option>
-                  {courses.map(c => (
-                    <option key={c.id} value={c.id}>
-                      {c.code} — {c.title}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
+            <CardContent className="space-y-6">
+              {selectedCourse ? (
+                <>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3">
+                    <p className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                      <SlidersHorizontal className="h-4 w-4 text-blue-600" />
+                      Enroll a student
+                    </p>
+                    <form className="mt-3 space-y-3" onSubmit={handleCreateEnrollment}>
+                      <div className="grid gap-3 md:grid-cols-[minmax(0,2fr),minmax(0,1fr)] md:items-center">
+                        <div className="relative">
+                          <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                          <Input
+                            value={studentSearch}
+                            onChange={(event) => setStudentSearch(event.target.value)}
+                            placeholder="Search by student name, email, or UID"
+                            className="pl-10"
+                          />
+                        </div>
+                        <div className="flex gap-2 md:justify-end">
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={handleFindStudent}
+                            className="gap-2"
+                          >
+                            <Search className="h-4 w-4" />
+                            Find Student
+                          </Button>
+                          <Button type="submit" disabled={isSubmitting} className="gap-2">
+                            <Plus className="h-4 w-4" />
+                            Enroll
+                          </Button>
+                        </div>
+                      </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Semester Selection */}
-              <div className="space-y-3">
-                <label className="block text-sm font-semibold text-slate-700">
-                  Semester
-                </label>
-                <select 
-                  className="w-full h-12 border-2 border-slate-200 rounded-xl px-4 bg-white/50 backdrop-blur-sm focus:border-blue-400 focus:bg-white transition-all duration-300 hover:border-slate-300"
-                  value={selectedSemesterId} 
-                  onChange={(e) => setSelectedSemesterId(e.target.value)}
-                >
-                  {SEMESTERS.map(s => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
-              </div>
+                      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr),minmax(0,180px)] md:items-center">
+                        <div className="text-sm text-slate-600">
+                          {selectedStudentId ? (
+                            <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 px-3 py-2 text-emerald-700">
+                              {(
+                                studentsById[selectedStudentId] ??
+                                studentsByUid[selectedStudentId]
+                              )?.name ?? selectedStudentId}
+                            </div>
+                          ) : (
+                            <span className="text-slate-500">Select a student to enable enrollment.</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <label htmlFor="enrollment-status" className="text-xs font-medium text-slate-500">
+                            Status
+                          </label>
+                          <select
+                            id="enrollment-status"
+                            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-400 focus:outline-none"
+                            value={createStatus}
+                            onChange={(event) => setCreateStatus(event.target.value as EnrollmentStatus)}
+                          >
+                            <option value="enrolled">Enrolled</option>
+                            <option value="completed">Completed</option>
+                            <option value="dropped">Dropped</option>
+                          </select>
+                        </div>
+                      </div>
+                    </form>
 
-              {/* Status Selection */}
-              <div className="space-y-3">
-                <label className="block text-sm font-semibold text-slate-700">
-                  Initial Status
-                </label>
-                <select 
-                  className="w-full h-12 border-2 border-slate-200 rounded-xl px-4 bg-white/50 backdrop-blur-sm focus:border-blue-400 focus:bg-white transition-all duration-300 hover:border-slate-300"
-                  value={createStatus} 
-                  onChange={(e) => setCreateStatus(e.target.value as EnrollmentStatus)}
-                >
-                  {STATUSES.map(s => (
-                    <option key={s} value={s}>
-                      {s.charAt(0).toUpperCase() + s.slice(1)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Submit Button */}
-            <div className="flex justify-end pt-4">
-              <Button
-                type="submit"
-                variant="primary"
-                size="lg"
-                disabled={isSubmitting || !selectedStudentId || !selectedCourseId}
-                className="min-w-[140px]"
-              >
-                {isSubmitting ? (
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Assigning...
+                    {suggestedStudents.length > 0 && (
+                      <div className="mt-4 space-y-2 rounded-lg border border-dashed border-slate-200 bg-white/60 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Suggested students
+                        </p>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          {suggestedStudents.map((student) => (
+                            <div
+                              key={student.id ?? student.uid ?? student.email ?? student.name}
+                              className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate font-medium text-slate-800">{student.name}</p>
+                                <p className="truncate text-xs text-slate-500">{student.email}</p>
+                              </div>
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => {
+                                  if (!student.id) return;
+                                  setSelectedStudentId(student.id);
+                                  setStudentSearch(student.email ?? student.name ?? student.id);
+                                  setFeedback("Student ready to enroll.");
+                                }}
+                                className="h-7 gap-1 px-3 text-xs"
+                              >
+                                <Plus className="h-3.5 w-3.5" />
+                                Select
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  "Assign Student"
-                )}
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
 
-      <Card className="mb-8">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-r from-slate-500 to-slate-600 flex items-center justify-center">
-              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-              </svg>
-            </div>
-            Filter Enrollments
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <div className="space-y-3">
-              <label className="block text-sm font-semibold text-slate-700">
-                Course
-              </label>
-              <select 
-                className="w-full h-12 border-2 border-slate-200 rounded-xl px-4 bg-white/50 backdrop-blur-sm focus:border-blue-400 focus:bg-white transition-all duration-300 hover:border-slate-300"
-                value={filterCourseId} 
-                onChange={(e) => setFilterCourseId(e.target.value)}
-              >
-                <option value="">All Courses</option>
-                {courses.map(c => (
-                  <option key={c.id} value={c.id}>
-                    {c.code} — {c.title}
-                  </option>
-                ))}
-              </select>
-            </div>
-            
-            <div className="space-y-3">
-              <label className="block text-sm font-semibold text-slate-700">
-                Semester
-              </label>
-              <select 
-                className="w-full h-12 border-2 border-slate-200 rounded-xl px-4 bg-white/50 backdrop-blur-sm focus:border-blue-400 focus:bg-white transition-all duration-300 hover:border-slate-300"
-                value={filterSemesterId} 
-                onChange={(e) => setFilterSemesterId(e.target.value)}
-              >
-                <option value="">All Semesters</option>
-                {SEMESTERS.map(s => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-            </div>
-            
-            <div className="flex items-end">
-              <Button
-                onClick={applyFilters}
-                variant="outline"
-                size="lg"
-                className="w-full h-12"
-              >
-                Apply Filters
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-r from-indigo-500 to-purple-500 flex items-center justify-center">
-              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
-              </svg>
-            </div>
-            All Enrollments
-            <div className="ml-auto px-3 py-1 bg-slate-100 rounded-full text-sm font-medium text-slate-600">
-              {enrollments.length} total
-            </div>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {enrollments.length === 0 ? (
-            <div className="text-center py-12">
-              <div className="w-16 h-16 mx-auto mb-4 bg-slate-100 rounded-2xl flex items-center justify-center">
-                <svg className="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
-                </svg>
-              </div>
-              <h3 className="text-lg font-semibold text-slate-800 mb-2">No enrollments found</h3>
-              <p className="text-slate-600 mb-4">Get started by assigning a student to a course above.</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {/* Desktop Table */}
-              <div className="hidden lg:block overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-slate-200">
-                      <th className="text-left py-4 px-4 font-semibold text-slate-700">Student</th>
-                      <th className="text-left py-4 px-4 font-semibold text-slate-700">Course</th>
-                      <th className="text-left py-4 px-4 font-semibold text-slate-700">Semester</th>
-                      <th className="text-left py-4 px-4 font-semibold text-slate-700">Status</th>
-                      <th className="text-left py-4 px-4 font-semibold text-slate-700">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {enrollments.map(e => (
-                      <tr key={e.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                        <td className="py-4 px-4">
-                          <div className="space-y-1">
-                            <div className="font-medium text-slate-800">
-                              {studentNameMap[e.studentId] || 'Unknown Student'}
-                            </div>
-                            <div className="font-mono text-xs text-slate-500">
-                              {e.studentId}
-                            </div>
-                          </div>
-                        </td>
-                        <td className="py-4 px-4">
-                          <div className="space-y-1">
-                            <div className="font-medium text-slate-800">
-                              {courseNameMap[e.courseId] || 'Unknown Course'}
-                            </div>
-                            <div className="font-mono text-xs text-slate-500">
-                              {e.courseId}
-                            </div>
-                          </div>
-                        </td>
-                        <td className="py-4 px-4">
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                            {e.semesterId}
-                          </span>
-                        </td>
-                        <td className="py-4 px-4">
-                          <select 
-                            className="h-9 border-2 border-slate-200 rounded-lg px-3 bg-white focus:border-blue-400 transition-colors text-sm"
-                            value={e.status} 
-                            onChange={(ev) => handleUpdateStatus(e.id, ev.target.value as EnrollmentStatus)}
-                          >
-                            {STATUSES.map(s => (
-                              <option key={s} value={s}>
-                                {s.charAt(0).toUpperCase() + s.slice(1)}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="py-4 px-4">
-                          <Button
-                            onClick={() => handleDelete(e.id)}
-                            variant="danger"
-                            size="sm"
-                            className="h-9"
-                          >
-                            Delete
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Mobile Cards */}
-              <div className="lg:hidden space-y-4">
-                {enrollments.map(e => (
-                  <div key={e.id} className="border border-slate-200 rounded-2xl p-4 bg-white shadow-soft">
-                    <div className="space-y-3">
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <p className="text-xs font-medium text-slate-500 mb-1">Student</p>
-                          <div className="space-y-1">
-                            <div className="font-medium text-slate-800">
-                              {studentNameMap[e.studentId] || 'Unknown Student'}
-                            </div>
-                            <div className="font-mono text-xs text-slate-500">
-                              {e.studentId}
-                            </div>
-                          </div>
-                        </div>
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                          {e.semesterId}
-                        </span>
-                      </div>
-                      
-                      <div>
-                        <p className="text-xs font-medium text-slate-500 mb-1">Course</p>
-                        <div className="space-y-1">
-                          <div className="font-medium text-slate-800">
-                            {courseNameMap[e.courseId] || 'Unknown Course'}
-                          </div>
-                          <div className="font-mono text-xs text-slate-500">
-                            {e.courseId}
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <div className="flex gap-3 pt-2">
-                        <div className="flex-1">
-                          <p className="text-xs font-medium text-slate-500 mb-2">Status</p>
-                          <select 
-                            className="w-full h-10 border-2 border-slate-200 rounded-lg px-3 bg-white focus:border-blue-400 transition-colors text-sm"
-                            value={e.status} 
-                            onChange={(ev) => handleUpdateStatus(e.id, ev.target.value as EnrollmentStatus)}
-                          >
-                            {STATUSES.map(s => (
-                              <option key={s} value={s}>
-                                {s.charAt(0).toUpperCase() + s.slice(1)}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="flex items-end">
-                          <Button
-                            onClick={() => handleDelete(e.id)}
-                            variant="danger"
-                            size="sm"
-                            className="h-10 px-4"
-                          >
-                            Delete
-                          </Button>
-                        </div>
+                  <div className="space-y-3">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <h3 className="text-base font-semibold text-slate-900">Enrolled students</h3>
+                      <div className="relative w-full sm:w-64">
+                        <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                        <Input
+                          value={studentFilter}
+                          onChange={(event) => setStudentFilter(event.target.value)}
+                          placeholder="Filter by name or email"
+                          className="pl-10"
+                        />
                       </div>
                     </div>
+
+                    {filteredEnrollments.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-8 text-center">
+                        <Users className="mx-auto h-10 w-10 text-slate-300" />
+                        <p className="mt-3 text-sm font-medium text-slate-700">No students enrolled yet.</p>
+                        <p className="text-xs text-slate-500">
+                          Use the form above to add students to this course.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="overflow-hidden rounded-xl border border-slate-200">
+                        <div className="hidden bg-slate-50/60 text-xs font-semibold uppercase tracking-wider text-slate-500 sm:grid sm:grid-cols-[minmax(0,2fr),minmax(0,1fr),120px,100px] sm:px-4 sm:py-2.5">
+                          <span>Student</span>
+                          <span>Email</span>
+                          <span>Status</span>
+                          <span>Actions</span>
+                        </div>
+                        <div className="divide-y divide-slate-200">
+                          {filteredEnrollments.map((enrollment) => (
+                            <div
+                              key={enrollment.id}
+                              className="grid gap-3 px-4 py-3 text-sm sm:grid-cols-[minmax(0,2fr),minmax(0,1fr),120px,100px] sm:items-center"
+                            >
+                              <div>
+                                <p className="font-medium text-slate-900">{enrollment.displayName}</p>
+                                {enrollment.displayEmail ? (
+                                  <p className="text-xs text-slate-500">{enrollment.displayEmail}</p>
+                                ) : null}
+                                <p className="font-mono text-[11px] text-slate-400">{enrollment.studentId}</p>
+                              </div>
+                              <div>
+                                <select
+                                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-400 focus:outline-none"
+                                  value={enrollment.status}
+                                  onChange={(event) =>
+                                    handleUpdateStatus(enrollment.id, event.target.value as EnrollmentStatus)
+                                  }
+                                >
+                                  <option value="enrolled">Enrolled</option>
+                                  <option value="completed">Completed</option>
+                                  <option value="dropped">Dropped</option>
+                                </select>
+                              </div>
+                              <div className="flex items-center justify-start sm:justify-end">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleRemoveEnrollment(enrollment.id)}
+                                  className="gap-2 text-red-600 hover:bg-red-50"
+                                  disabled={isSubmitting}
+                                >
+                                  <UserMinus className="h-4 w-4" />
+                                  Remove
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                </>
+              ) : (
+                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-10 text-center">
+                  <BookOpen className="mx-auto h-12 w-12 text-slate-300" />
+                  <p className="mt-3 text-base font-semibold text-slate-800">Select a course to begin</p>
+                  <p className="text-sm text-slate-500">
+                    Choose a course from the list to view enrolled students and manage assignments.
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </section>
+      </div>
     </div>
   );
-
-  } catch (renderError) {
-    console.error('❌ Enrollment component render error:', renderError);
-    return (
-      <div className="p-6">
-        <div className="text-center py-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-red-100 rounded-2xl mb-4">
-            <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
-            </svg>
-          </div>
-          <h3 className="text-lg font-semibold text-gray-800 mb-2">Something went wrong</h3>
-          <p className="text-gray-600 mb-4">There was an error loading the enrollments page.</p>
-          <button 
-            onClick={() => window.location.reload()} 
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-          >
-            Reload Page
-          </button>
-        </div>
-      </div>
-    );
-  }
 }
-
-

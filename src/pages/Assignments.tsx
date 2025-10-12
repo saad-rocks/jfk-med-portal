@@ -6,7 +6,7 @@ import { useRole } from "../hooks/useRole";
 import { listAssignments } from "../lib/assignments";
 import { getTeacherAssignments } from "../lib/teacherAssignments";
 import { getAllUsers } from "../lib/users";
-import { getSubmissionForStudent } from "../lib/submissions";
+import { getSubmissionForStudent, listSubmissions } from "../lib/submissions";
 import { listCourses } from "../lib/courses";
 // Assignment modals moved to routed pages
 import type { Assignment, Submission, Course, User } from "../types";
@@ -14,13 +14,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 // // import { MedicalModal } from "../components/ui/medical-modal";
-import { Plus, FileText, Calendar, Users, BookOpen, X, Target, Award, Clock, AlertTriangle, Bell, CheckCircle, TrendingUp, AlertCircle, Filter, Eye, Upload, GraduationCap, User as UserIcon } from "lucide-react";
+import { Plus, FileText, Calendar, Users, BookOpen, X, Target, Award, Clock, AlertTriangle, Bell, CheckCircle, TrendingUp, AlertCircle, Filter, Eye, Upload, GraduationCap, User as UserIcon, Edit, ClipboardCheck } from "lucide-react";
 
 interface EnrichedAssignment extends Assignment {
   id: string;
   submission?: Submission | null;
   course?: Course;
   instructor?: User;
+  // Teacher-specific fields
+  submissionCount?: number;
+  needsGradingCount?: number;
+  totalEnrolled?: number;
 }
 
 export default function Assignments() {
@@ -32,8 +36,8 @@ export default function Assignments() {
 
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
 
-  // Filtering and search
-  const [filterType, setFilterType] = useState<'all' | 'upcoming' | 'overdue' | 'past' | 'submitted' | 'graded'>('all');
+  // Filtering and search - role-specific filter types
+  const [filterType, setFilterType] = useState<'all' | 'upcoming' | 'overdue' | 'past' | 'submitted' | 'graded' | 'needsGrading' | 'active'>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
   const fetchData = async () => {
@@ -59,18 +63,40 @@ export default function Assignments() {
         console.log("📚 Teacher assignments found:", teacherAssignments);
         setTeacherCourses(teacherAssignments);
 
-        // Get all assignments for teacher's courses
+        // Get all assignments for teacher's courses with submission data
         const allAssignments: EnrichedAssignment[] = [];
+        const allCourses = await listCourses();
+
         for (const course of teacherAssignments) {
           console.log("🔍 Getting assignments for course:", course.courseId);
           const courseAssignments = await listAssignments(course.courseId);
           console.log("📝 Course assignments found:", courseAssignments);
 
-          // Enrich with course data
+          // Get course data
+          const courseData = allCourses.find(c => c.id === course.courseId);
+
+          // Get enrolled student count for the course
+          const enrollmentsQuery = query(
+            collection(db, "enrollments"),
+            where("courseId", "==", course.courseId),
+            where("status", "==", "enrolled")
+          );
+          const enrollmentsSnap = await getDocs(enrollmentsQuery);
+          const totalEnrolled = enrollmentsSnap.size;
+
+          // Enrich with course data and submission counts
           for (const assignment of courseAssignments) {
+            // Get all submissions for this assignment
+            const submissions = await listSubmissions(assignment.id!);
+            const needsGrading = submissions.filter(s => !s.grade?.gradedAt).length;
+
             const enrichedAssignment: EnrichedAssignment = {
               ...assignment,
-              id: assignment.id!
+              id: assignment.id!,
+              course: courseData,
+              submissionCount: submissions.length,
+              needsGradingCount: needsGrading,
+              totalEnrolled
             };
             allAssignments.push(enrichedAssignment);
           }
@@ -177,39 +203,61 @@ export default function Assignments() {
     };
   }, [role, user]);
 
-  // Filter and sort assignments
+  // Filter and sort assignments - role-specific logic
   const filteredAssignments = assignments.filter(assignment => {
     const now = new Date();
     const dueDate = new Date(assignment.dueAt);
     const isOverdue = dueDate < now;
     const isDueSoon = !isOverdue && (dueDate.getTime() - now.getTime()) <= (3 * 24 * 60 * 60 * 1000); // 3 days
+
+    // Student-specific checks
     const isSubmitted = !!assignment.submission;
     const isGraded = assignment.submission?.grade?.gradedAt != null;
 
-    // Filter by type
-    switch (filterType) {
-      case 'upcoming':
-        // Show assignments that are due soon and not yet submitted
-        if (isOverdue || isSubmitted) return false;
-        break;
-      case 'overdue':
-        // Show only overdue assignments that haven't been submitted
-        if (!isOverdue || isSubmitted) return false;
-        break;
-      case 'past':
-        // Show past due assignments (including submitted and graded)
-        if (!isOverdue && !isSubmitted && !isGraded) return false;
-        break;
-      case 'submitted':
-        // Show only submitted but not yet graded
-        if (!isSubmitted || isGraded) return false;
-        break;
-      case 'graded':
-        // Show only graded assignments
-        if (!isGraded) return false;
-        break;
-      default: // 'all'
-        break;
+    // Teacher-specific checks
+    const hasNeedsGrading = (assignment.needsGradingCount ?? 0) > 0;
+    const isPastDue = dueDate < now;
+    const isActive = dueDate >= now;
+
+    // Filter by type - role-specific
+    if (role === 'teacher') {
+      switch (filterType) {
+        case 'needsGrading':
+          if (!hasNeedsGrading) return false;
+          break;
+        case 'active':
+          if (!isActive) return false;
+          break;
+        case 'past':
+          if (!isPastDue) return false;
+          break;
+        case 'upcoming':
+          if (!isDueSoon || !isActive) return false;
+          break;
+        default: // 'all'
+          break;
+      }
+    } else {
+      // Student filters
+      switch (filterType) {
+        case 'upcoming':
+          if (isOverdue || isSubmitted) return false;
+          break;
+        case 'overdue':
+          if (!isOverdue || isSubmitted) return false;
+          break;
+        case 'past':
+          if (!isOverdue && !isSubmitted && !isGraded) return false;
+          break;
+        case 'submitted':
+          if (!isSubmitted || isGraded) return false;
+          break;
+        case 'graded':
+          if (!isGraded) return false;
+          break;
+        default: // 'all'
+          break;
+      }
     }
 
     // Search filter
@@ -227,53 +275,95 @@ export default function Assignments() {
     const aOverdue = aDue < now;
     const bOverdue = bDue < now;
 
+    // For teachers, prioritize by needs grading
+    if (role === 'teacher') {
+      const aNeedsGrading = (a.needsGradingCount ?? 0) > 0;
+      const bNeedsGrading = (b.needsGradingCount ?? 0) > 0;
+
+      if (aNeedsGrading && !bNeedsGrading) return -1;
+      if (!aNeedsGrading && bNeedsGrading) return 1;
+    }
+
     if (aOverdue && !bOverdue) return -1;
     if (!aOverdue && bOverdue) return 1;
 
     return aDue.getTime() - bDue.getTime();
   });
 
-  // Statistics
+  // Statistics - role-specific
   const getAssignmentStats = () => {
     const now = new Date();
-    const stats = {
-      total: assignments.length,
-      upcoming: 0,
-      overdue: 0,
-      completed: 0,
-      submitted: 0,
-      graded: 0
-    };
 
-    assignments.forEach(assignment => {
-      const dueDate = new Date(assignment.dueAt);
-      const isSubmitted = !!assignment.submission;
-      const isGraded = assignment.submission?.grade?.gradedAt != null;
+    if (role === 'teacher') {
+      const stats = {
+        total: assignments.length,
+        needsGrading: 0,
+        totalSubmissions: 0,
+        active: 0,
+        pastDue: 0,
+        upcoming: 0
+      };
 
-      // Count graded assignments
-      if (isGraded) {
-        stats.graded++;
-        stats.completed++;
-      }
-      // Count submitted but not graded
-      else if (isSubmitted) {
-        stats.submitted++;
-        stats.completed++; // Submitted also counts as completed
-      }
-      // Count overdue and not submitted
-      else if (dueDate < now) {
-        stats.overdue++;
-      }
-      // Count upcoming (due within 7 days and not submitted)
-      else if ((dueDate.getTime() - now.getTime()) <= (7 * 24 * 60 * 60 * 1000)) {
-        stats.upcoming++;
-      }
-    });
+      assignments.forEach(assignment => {
+        const dueDate = new Date(assignment.dueAt);
+        const isDueSoon = (dueDate.getTime() - now.getTime()) <= (7 * 24 * 60 * 60 * 1000) && dueDate >= now;
 
-    return stats;
+        stats.needsGrading += assignment.needsGradingCount ?? 0;
+        stats.totalSubmissions += assignment.submissionCount ?? 0;
+
+        if (dueDate >= now) {
+          stats.active++;
+        } else {
+          stats.pastDue++;
+        }
+
+        if (isDueSoon) {
+          stats.upcoming++;
+        }
+      });
+
+      return stats;
+    } else {
+      // Student stats
+      const stats = {
+        total: assignments.length,
+        upcoming: 0,
+        overdue: 0,
+        completed: 0,
+        submitted: 0,
+        graded: 0
+      };
+
+      assignments.forEach(assignment => {
+        const dueDate = new Date(assignment.dueAt);
+        const isSubmitted = !!assignment.submission;
+        const isGraded = assignment.submission?.grade?.gradedAt != null;
+
+        // Count graded assignments
+        if (isGraded) {
+          stats.graded++;
+          stats.completed++;
+        }
+        // Count submitted but not graded
+        else if (isSubmitted) {
+          stats.submitted++;
+          stats.completed++;
+        }
+        // Count overdue and not submitted
+        else if (dueDate < now) {
+          stats.overdue++;
+        }
+        // Count upcoming (due within 7 days and not submitted)
+        else if ((dueDate.getTime() - now.getTime()) <= (7 * 24 * 60 * 60 * 1000)) {
+          stats.upcoming++;
+        }
+      });
+
+      return stats;
+    }
   };
 
-  const stats = getAssignmentStats();
+  const stats = getAssignmentStats() as any; // Type union makes accessing properties complex, using any for stats
 
   const getAssignmentTypeColor = (type: string) => {
     switch (type) {
@@ -351,74 +441,135 @@ export default function Assignments() {
         </div>
       </div>
 
-      {/* Quick Stats Dashboard */}
+      {/* Quick Stats Dashboard - Role-Specific */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="border-l-4 border-l-red-500">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Overdue</p>
-                <p className="text-2xl font-bold text-red-600">{stats.overdue}</p>
-              </div>
-              <AlertTriangle className="h-8 w-8 text-red-500" />
-            </div>
-            {stats.overdue > 0 && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="mt-2 w-full border-red-200 text-red-600 hover:bg-red-50"
-                onClick={() => setFilterType('overdue')}
-              >
-                View Overdue
-              </Button>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="border-l-4 border-l-yellow-500">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Due Soon</p>
-                <p className="text-2xl font-bold text-yellow-600">{stats.upcoming}</p>
-              </div>
-              <Bell className="h-8 w-8 text-yellow-500" />
-            </div>
-            {stats.upcoming > 0 && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="mt-2 w-full border-yellow-200 text-yellow-600 hover:bg-yellow-50"
-                onClick={() => setFilterType('upcoming')}
-              >
-                View Upcoming
-              </Button>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="border-l-4 border-l-green-500">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">All Assignments</p>
-                <p className="text-2xl font-bold text-green-600">{stats.total}</p>
-              </div>
-              <FileText className="h-8 w-8 text-green-500" />
-            </div>
-            <Button
-              size="sm"
-              variant="outline"
-              className="mt-2 w-full border-green-200 text-green-600 hover:bg-green-50"
-              onClick={() => setFilterType('all')}
-            >
-              View All
-            </Button>
-          </CardContent>
-        </Card>
-
-        {role === 'student' && (
+        {role === 'teacher' ? (
           <>
+            {/* Teacher Stats */}
+            <Card className="border-l-4 border-l-orange-500">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Needs Grading</p>
+                    <p className="text-2xl font-bold text-orange-600">{stats.needsGrading}</p>
+                  </div>
+                  <ClipboardCheck className="h-8 w-8 text-orange-500" />
+                </div>
+                {stats.needsGrading > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="mt-2 w-full border-orange-200 text-orange-600 hover:bg-orange-50"
+                    onClick={() => setFilterType('needsGrading')}
+                  >
+                    Review Submissions
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-blue-500">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Total Submissions</p>
+                    <p className="text-2xl font-bold text-blue-600">{stats.totalSubmissions}</p>
+                  </div>
+                  <Upload className="h-8 w-8 text-blue-500" />
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  Across all assignments
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-green-500">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Active</p>
+                    <p className="text-2xl font-bold text-green-600">{stats.active}</p>
+                  </div>
+                  <CheckCircle className="h-8 w-8 text-green-500" />
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="mt-2 w-full border-green-200 text-green-600 hover:bg-green-50"
+                  onClick={() => setFilterType('active')}
+                >
+                  View Active
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-slate-500">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Past Due</p>
+                    <p className="text-2xl font-bold text-slate-600">{stats.pastDue}</p>
+                  </div>
+                  <FileText className="h-8 w-8 text-slate-500" />
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="mt-2 w-full border-slate-200 text-slate-600 hover:bg-slate-50"
+                  onClick={() => setFilterType('past')}
+                >
+                  View Past Due
+                </Button>
+              </CardContent>
+            </Card>
+          </>
+        ) : (
+          <>
+            {/* Student Stats */}
+            <Card className="border-l-4 border-l-red-500">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Overdue</p>
+                    <p className="text-2xl font-bold text-red-600">{stats.overdue}</p>
+                  </div>
+                  <AlertTriangle className="h-8 w-8 text-red-500" />
+                </div>
+                {stats.overdue > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="mt-2 w-full border-red-200 text-red-600 hover:bg-red-50"
+                    onClick={() => setFilterType('overdue')}
+                  >
+                    View Overdue
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-yellow-500">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Due Soon</p>
+                    <p className="text-2xl font-bold text-yellow-600">{stats.upcoming}</p>
+                  </div>
+                  <Bell className="h-8 w-8 text-yellow-500" />
+                </div>
+                {stats.upcoming > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="mt-2 w-full border-yellow-200 text-yellow-600 hover:bg-yellow-50"
+                    onClick={() => setFilterType('upcoming')}
+                  >
+                    View Upcoming
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+
             <Card className="border-l-4 border-l-blue-500">
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
@@ -460,32 +611,9 @@ export default function Assignments() {
             </Card>
           </>
         )}
-        {role === 'teacher' && (
-          <Card className="border-l-4 border-l-blue-500">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Past Due</p>
-                  <p className="text-2xl font-bold text-blue-600">
-                    {assignments.filter(a => new Date(a.dueAt) < new Date()).length}
-                  </p>
-                </div>
-                <CheckCircle className="h-8 w-8 text-blue-500" />
-              </div>
-              <Button
-                size="sm"
-                variant="outline"
-                className="mt-2 w-full border-blue-200 text-blue-600 hover:bg-blue-50"
-                onClick={() => setFilterType('past')}
-              >
-                View Past Due
-              </Button>
-            </CardContent>
-          </Card>
-        )}
       </div>
 
-      {/* Quick Filters */}
+      {/* Quick Filters - Role-Specific */}
       <div className="flex flex-wrap gap-2">
         <Button
           variant={filterType === 'all' && !searchQuery ? 'primary' : 'outline'}
@@ -500,28 +628,70 @@ export default function Assignments() {
           All Assignments ({stats.total})
         </Button>
 
-        <Button
-          variant={filterType === 'upcoming' ? 'primary' : 'outline'}
-          size="sm"
-          onClick={() => setFilterType('upcoming')}
-          className="flex items-center gap-1"
-        >
-          <Bell size={14} />
-          Due Soon ({stats.upcoming})
-        </Button>
-
-        <Button
-          variant={filterType === 'overdue' ? 'danger' : 'outline'}
-          size="sm"
-          onClick={() => setFilterType('overdue')}
-          className="flex items-center gap-1 bg-red-50 border-red-200 text-red-700 hover:bg-red-100"
-        >
-          <AlertTriangle size={14} />
-          Overdue ({stats.overdue})
-        </Button>
-
-        {role === 'student' && (
+        {role === 'teacher' ? (
           <>
+            <Button
+              variant={filterType === 'needsGrading' ? 'primary' : 'outline'}
+              size="sm"
+              onClick={() => setFilterType('needsGrading')}
+              className="flex items-center gap-1 bg-orange-50 border-orange-200 text-orange-700 hover:bg-orange-100"
+            >
+              <ClipboardCheck size={14} />
+              Needs Grading ({stats.needsGrading})
+            </Button>
+
+            <Button
+              variant={filterType === 'active' ? 'primary' : 'outline'}
+              size="sm"
+              onClick={() => setFilterType('active')}
+              className="flex items-center gap-1"
+            >
+              <CheckCircle size={14} />
+              Active ({stats.active})
+            </Button>
+
+            <Button
+              variant={filterType === 'past' ? 'primary' : 'outline'}
+              size="sm"
+              onClick={() => setFilterType('past')}
+              className="flex items-center gap-1"
+            >
+              <FileText size={14} />
+              Past Due ({stats.pastDue})
+            </Button>
+
+            <Button
+              variant={filterType === 'upcoming' ? 'primary' : 'outline'}
+              size="sm"
+              onClick={() => setFilterType('upcoming')}
+              className="flex items-center gap-1"
+            >
+              <Bell size={14} />
+              Due Soon ({stats.upcoming})
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button
+              variant={filterType === 'upcoming' ? 'primary' : 'outline'}
+              size="sm"
+              onClick={() => setFilterType('upcoming')}
+              className="flex items-center gap-1"
+            >
+              <Bell size={14} />
+              Due Soon ({stats.upcoming})
+            </Button>
+
+            <Button
+              variant={filterType === 'overdue' ? 'danger' : 'outline'}
+              size="sm"
+              onClick={() => setFilterType('overdue')}
+              className="flex items-center gap-1 bg-red-50 border-red-200 text-red-700 hover:bg-red-100"
+            >
+              <AlertTriangle size={14} />
+              Overdue ({stats.overdue})
+            </Button>
+
             <Button
               variant={filterType === 'submitted' ? 'primary' : 'outline'}
               size="sm"
@@ -542,18 +712,6 @@ export default function Assignments() {
               Graded ({stats.graded})
             </Button>
           </>
-        )}
-
-        {role === 'teacher' && (
-          <Button
-            variant={filterType === 'past' ? 'primary' : 'outline'}
-            size="sm"
-            onClick={() => setFilterType('past')}
-            className="flex items-center gap-1"
-          >
-            <CheckCircle size={14} />
-            Past Due ({assignments.filter(a => new Date(a.dueAt) < new Date()).length})
-          </Button>
         )}
       </div>
 
@@ -661,9 +819,10 @@ export default function Assignments() {
               const IconComponent = getAssignmentTypeIcon(assignment.type);
               const now = new Date();
               const dueDate = new Date(assignment.dueAt);
-              const isOverdue = dueDate < now;
+              // Only mark as overdue if no submission exists
+              const isOverdue = dueDate < now && !assignment.submission;
               const daysUntilDue = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-              const isDueSoon = !isOverdue && daysUntilDue <= 3;
+              const isDueSoon = !isOverdue && daysUntilDue <= 3 && !assignment.submission;
 
               return (
                 <Card key={assignment.id} className={`hover:shadow-lg transition-all duration-200 border-2 ${
@@ -740,54 +899,109 @@ export default function Assignments() {
                         
                         <p className="text-slate-600 mb-4 leading-relaxed">{assignment.instructions}</p>
 
-                        {/* Course and Instructor Info */}
-                        {role === 'student' && (assignment.course || assignment.instructor) && (
-                          <div className="flex flex-wrap items-center gap-4 mb-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
-                            {assignment.course && (
+                        {/* Role-Specific Info Panels */}
+                        {role === 'teacher' ? (
+                          /* Teacher: Show submission statistics */
+                          <div className="mb-4 grid grid-cols-2 gap-3">
+                            <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
                               <div className="flex items-center gap-2 text-sm">
+                                <Upload size={16} className="text-blue-600" />
+                                <div>
+                                  <span className="font-semibold text-blue-800">
+                                    {assignment.submissionCount ?? 0} / {assignment.totalEnrolled ?? 0}
+                                  </span>
+                                  <p className="text-xs text-blue-600">Submissions Received</p>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className={`p-3 rounded-lg border ${
+                              (assignment.needsGradingCount ?? 0) > 0
+                                ? 'bg-orange-50 border-orange-200'
+                                : 'bg-green-50 border-green-200'
+                            }`}>
+                              <div className="flex items-center gap-2 text-sm">
+                                {(assignment.needsGradingCount ?? 0) > 0 ? (
+                                  <>
+                                    <ClipboardCheck size={16} className="text-orange-600" />
+                                    <div>
+                                      <span className="font-semibold text-orange-800">
+                                        {assignment.needsGradingCount} Need Grading
+                                      </span>
+                                      <p className="text-xs text-orange-600">Pending Review</p>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <>
+                                    <CheckCircle size={16} className="text-green-600" />
+                                    <div>
+                                      <span className="font-semibold text-green-800">All Graded</span>
+                                      <p className="text-xs text-green-600">Up to date</p>
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+
+                            {assignment.course && (
+                              <div className="col-span-2 flex items-center gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200 text-sm">
                                 <GraduationCap size={16} className="text-blue-600" />
                                 <span className="font-medium text-slate-800">{assignment.course.code}</span>
                                 <span className="text-slate-600">- {assignment.course.title}</span>
                               </div>
                             )}
-                            {assignment.instructor && (
-                              <div className="flex items-center gap-2 text-sm text-slate-600">
-                                <UserIcon size={16} className="text-slate-500" />
-                                <span>Instructor: <span className="font-medium text-slate-800">{assignment.instructor.name}</span></span>
+                          </div>
+                        ) : (
+                          /* Student: Show course/instructor and submission status */
+                          <>
+                            {(assignment.course || assignment.instructor) && (
+                              <div className="flex flex-wrap items-center gap-4 mb-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                                {assignment.course && (
+                                  <div className="flex items-center gap-2 text-sm">
+                                    <GraduationCap size={16} className="text-blue-600" />
+                                    <span className="font-medium text-slate-800">{assignment.course.code}</span>
+                                    <span className="text-slate-600">- {assignment.course.title}</span>
+                                  </div>
+                                )}
+                                {assignment.instructor && (
+                                  <div className="flex items-center gap-2 text-sm text-slate-600">
+                                    <UserIcon size={16} className="text-slate-500" />
+                                    <span>Instructor: <span className="font-medium text-slate-800">{assignment.instructor.name}</span></span>
+                                  </div>
+                                )}
                               </div>
                             )}
-                          </div>
-                        )}
 
-                        {/* Submission Status for Students */}
-                        {role === 'student' && assignment.submission && (
-                          <div className={`mb-4 p-3 rounded-lg border ${
-                            assignment.submission.grade.gradedAt
-                              ? 'bg-green-50 border-green-200'
-                              : 'bg-blue-50 border-blue-200'
-                          }`}>
-                            <div className="flex items-center gap-2 text-sm">
-                              {assignment.submission.grade.gradedAt ? (
-                                <>
-                                  <CheckCircle size={16} className="text-green-600" />
-                                  <span className="font-medium text-green-800">
-                                    Graded: {assignment.submission.grade.points}/{assignment.maxPoints} points
-                                  </span>
-                                  {assignment.submission.grade.feedback && (
-                                    <span className="text-green-700">• {assignment.submission.grade.feedback}</span>
+                            {assignment.submission && (
+                              <div className={`mb-4 p-3 rounded-lg border ${
+                                assignment.submission.grade.gradedAt
+                                  ? 'bg-green-50 border-green-200'
+                                  : 'bg-blue-50 border-blue-200'
+                              }`}>
+                                <div className="flex items-center gap-2 text-sm">
+                                  {assignment.submission.grade.gradedAt ? (
+                                    <>
+                                      <CheckCircle size={16} className="text-green-600" />
+                                      <span className="font-medium text-green-800">
+                                        Graded: {assignment.submission.grade.points}/{assignment.maxPoints} points
+                                      </span>
+                                      {assignment.submission.grade.feedback && (
+                                        <span className="text-green-700">• {assignment.submission.grade.feedback}</span>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Upload size={16} className="text-blue-600" />
+                                      <span className="font-medium text-blue-800">
+                                        Submitted on {new Date(assignment.submission.submittedAt).toLocaleDateString()}
+                                      </span>
+                                      <span className="text-blue-700">• Pending review</span>
+                                    </>
                                   )}
-                                </>
-                              ) : (
-                                <>
-                                  <Upload size={16} className="text-blue-600" />
-                                  <span className="font-medium text-blue-800">
-                                    Submitted on {new Date(assignment.submission.submittedAt).toLocaleDateString()}
-                                  </span>
-                                  <span className="text-blue-700">• Pending review</span>
-                                </>
-                              )}
-                            </div>
-                          </div>
+                                </div>
+                              </div>
+                            )}
+                          </>
                         )}
 
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
@@ -809,7 +1023,7 @@ export default function Assignments() {
                       </div>
                       
                       <div className="flex flex-col gap-3 ml-6">
-                        {/* Primary Action Button */}
+                        {/* Primary Action Button - Role-Specific */}
                         {role === 'student' ? (
                           <Button
                             className={`flex items-center gap-2 font-medium ${
@@ -822,9 +1036,7 @@ export default function Assignments() {
                                 : 'bg-green-600 hover:bg-green-700 text-white'
                             }`}
                             onClick={() => {
-                              // Scroll to top when opening modal
                               window.scrollTo({ top: 0, behavior: 'smooth' });
-
                               navigate(`/assignments/${assignment.id}/submit`);
                             }}
                           >
@@ -846,34 +1058,49 @@ export default function Assignments() {
                             )}
                           </Button>
                         ) : (
-                          <Button
-                            className="flex items-center gap-2 font-medium bg-medical-600 hover:bg-medical-700 text-white"
-                            onClick={() => {
-                              // Scroll to top when opening modal
-                              window.scrollTo({ top: 0, behavior: 'smooth' });
- 
-                              navigate(`/assignments/${assignment.id}/edit`);
-                            }}
-                          >
-                            <Eye size={16} />
-                            Edit Assignment
-                          </Button>
-                        )}
+                          /* Teacher Actions */
+                          <div className="flex flex-col gap-2">
+                            <Button
+                              className={`flex items-center gap-2 font-medium ${
+                                (assignment.needsGradingCount ?? 0) > 0
+                                  ? 'bg-orange-600 hover:bg-orange-700 text-white'
+                                  : 'bg-medical-600 hover:bg-medical-700 text-white'
+                              }`}
+                              onClick={() => {
+                                window.scrollTo({ top: 0, behavior: 'smooth' });
+                                navigate(`/courses/${assignment.courseId}/assignments/teacher`);
+                              }}
+                            >
+                              {(assignment.needsGradingCount ?? 0) > 0 ? (
+                                <>
+                                  <ClipboardCheck size={16} />
+                                  Grade Submissions ({assignment.needsGradingCount})
+                                </>
+                              ) : (
+                                <>
+                                  <Users size={16} />
+                                  View Submissions ({assignment.submissionCount})
+                                </>
+                              )}
+                            </Button>
 
-                        {/* Secondary Actions */}
-                        <div className="flex gap-2">
-                          {role === 'teacher' && (
                             <Button
                               variant="outline"
                               size="sm"
-                              className="flex items-center gap-1 text-blue-600 border-blue-200 hover:bg-blue-50"
+                              className="flex items-center gap-2 text-slate-700 border-slate-200 hover:bg-slate-50"
+                              onClick={() => {
+                                window.scrollTo({ top: 0, behavior: 'smooth' });
+                                navigate(`/assignments/${assignment.id}/edit`);
+                              }}
                             >
-                              <Users size={14} />
-                              View Submissions
+                              <Edit size={14} />
+                              Edit Assignment
                             </Button>
-                          )}
+                          </div>
+                        )}
 
-                          {/* Status Indicator */}
+                        {/* Secondary Actions / Status */}
+                        {role === 'student' && (
                           <div className="flex items-center gap-1 px-2 py-1 bg-gray-100 rounded-md text-xs text-gray-600">
                             {isOverdue ? (
                               <>
@@ -892,7 +1119,7 @@ export default function Assignments() {
                               </>
                             )}
                           </div>
-                        </div>
+                        )}
                       </div>
                     </div>
                   </CardContent>

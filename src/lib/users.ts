@@ -11,7 +11,8 @@ import {
   orderBy,
   limit,
   Timestamp,
-  writeBatch
+  writeBatch,
+  serverTimestamp
 } from 'firebase/firestore';
 import {
   createUserWithEmailAndPassword,
@@ -217,6 +218,31 @@ export async function getUserByUid(uid: string): Promise<UserProfile | null> {
   } catch (error) {
     console.error('Error fetching user by UID:', error);
     throw new Error('Failed to fetch user by UID');
+  }
+}
+
+// Update the last login timestamp for an authenticated user
+export async function updateUserLastLogin(uid: string): Promise<void> {
+  try {
+    const usersRef = collection(db, USERS_COLLECTION);
+    const q = query(usersRef, where('uid', '==', uid), limit(1));
+    const snapshot = await getDocs(q);
+
+    if (snapshot.empty) {
+      console.warn('Cannot update lastLoginAt - user profile not found:', uid);
+      return;
+    }
+
+    await updateDoc(snapshot.docs[0].ref, {
+      lastLoginAt: serverTimestamp(),
+      status: 'active',
+      updatedAt: serverTimestamp()
+    });
+
+    userCache.delete(`uid_${uid}`);
+    console.log('Updated lastLoginAt for user:', uid);
+  } catch (error) {
+    console.error('Error updating last login timestamp:', error);
   }
 }
 

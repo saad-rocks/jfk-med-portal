@@ -84,9 +84,10 @@ export default function AssignmentsStudent() {
             const submission = await getSubmissionForStudent(assignment.id!, user.uid);
             const now = Date.now();
             const daysUntilDue = Math.ceil((assignment.dueAt - now) / (1000 * 60 * 60 * 24));
-            const isOverdue = assignment.dueAt < now;
-            const isDueSoon = !isOverdue && daysUntilDue <= 3;
-            
+            // Only mark as overdue if no submission exists
+            const isOverdue = assignment.dueAt < now && !submission;
+            const isDueSoon = !isOverdue && daysUntilDue <= 3 && !submission;
+
             let status: AssignmentStatus = 'not-started';
             if (submission) {
               if (submission.grade.gradedAt) {
@@ -110,13 +111,17 @@ export default function AssignmentsStudent() {
             };
           } catch (error) {
             console.error(`Error fetching submission for assignment ${assignment.id}:`, error);
+            const now = Date.now();
+            const daysUntilDue = Math.ceil((assignment.dueAt - now) / (1000 * 60 * 60 * 24));
+            // When error occurs, assume no submission for safety
+            const isOverdue = assignment.dueAt < now;
             return {
               ...assignment,
               submission: null,
-              status: 'not-started' as AssignmentStatus,
-              daysUntilDue: Math.ceil((assignment.dueAt - Date.now()) / (1000 * 60 * 60 * 24)),
-              isOverdue: assignment.dueAt < Date.now(),
-              isDueSoon: false
+              status: isOverdue ? 'overdue' as AssignmentStatus : 'not-started' as AssignmentStatus,
+              daysUntilDue,
+              isOverdue,
+              isDueSoon: !isOverdue && daysUntilDue <= 3
             };
           }
         })
@@ -240,6 +245,11 @@ export default function AssignmentsStudent() {
   };
 
   const getDueDateDisplay = (assignment: AssignmentWithSubmission) => {
+    // If submitted or graded, show submission date instead of due date
+    if (assignment.submission) {
+      return `Submitted ${new Date(assignment.submission.submittedAt).toLocaleDateString()}`;
+    }
+
     if (assignment.isOverdue) {
       const daysOverdue = Math.abs(assignment.daysUntilDue);
       return `Overdue by ${daysOverdue} day${daysOverdue !== 1 ? 's' : ''}`;

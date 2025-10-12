@@ -3,8 +3,17 @@ import React from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Suspense, lazy } from "react";
 import { useRole } from "./hooks/useRole";
+import { useSystemSettings } from "./hooks/useSystemSettings";
+import { MaintenanceMode } from "./components/MaintenanceMode";
 import AppShell from "./layouts/AppShell";
 // Removed global seeding import to reduce bundle size
+
+// Load test functions in development
+if (import.meta.env.DEV) {
+  import('./lib/testSystemFunctions').then(() => {
+    console.log('✅ Test functions loaded. Use: window.testSystemFunctions.runAllTests()');
+  });
+}
 
 // Global Error Boundary
 interface ErrorBoundaryState {
@@ -150,6 +159,7 @@ const AssignmentsStudent = lazy(() => import("./pages/AssignmentsStudent"));
 const GradeSubmissions = lazy(() => import("./pages/GradeSubmissions"));
 const Attendance = lazy(() => import("./pages/Attendance"));
 const Gradebook = lazy(() => import("./pages/Gradebook"));
+const GradesStudent = lazy(() => import("./pages/GradesStudent"));
 
 // Less critical pages
 const Announcements = lazy(() => import("./pages/Announcements"));
@@ -167,8 +177,9 @@ const DatabaseAdmin = lazy(() => import("./pages/DatabaseAdmin"));
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { user, role, loading } = useRole();
+  const { settings, loading: settingsLoading } = useSystemSettings();
 
-  if (loading) {
+  if (loading || settingsLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-50 via-white to-teal-50">
         <div className="flex items-center gap-3">
@@ -177,6 +188,11 @@ function AuthGate({ children }: { children: React.ReactNode }) {
         </div>
       </div>
     );
+  }
+
+  // Check if system is in maintenance mode and user is not admin
+  if (settings?.maintenanceMode && role !== "admin") {
+    return <MaintenanceMode message={settings.maintenanceMessage} />;
   }
 
   // If user is authenticated but no profile exists, redirect to profile setup
@@ -237,6 +253,7 @@ function App() {
           <Route path="courses/:courseId/assignments" element={<AssignmentsStudent />} />
           <Route path="assignments/:assignmentId/grade" element={<GradeSubmissions />} />
           <Route path="enrollments" element={<Enrollments />} />
+          <Route path="grades" element={<GradesStudent />} />
           <Route path="manage-users" element={<ManageUsers />} />
           <Route path="attendance" element={<Attendance />} />
           <Route path="courses/:courseId/gradebook" element={<Gradebook />} />

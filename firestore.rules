@@ -98,6 +98,18 @@ service cloud.firestore {
       allow delete: if isSignedIn();
     }
 
+    // System settings collection rules
+    match /system/{docId} {
+      // Allow all authenticated users to read system configuration (maintenance mode, etc.)
+      allow get, list: if isSignedIn();
+
+      // Only admins may create or modify system configuration documents
+      allow create, update: if isSignedIn() && isAdmin();
+
+      // Prevent deletion via client
+      allow delete: if false;
+    }
+
     // Sessions collection rules
     match /sessions/{sessionId} {
       // Read access - all authenticated users can read sessions (for dashboard display)

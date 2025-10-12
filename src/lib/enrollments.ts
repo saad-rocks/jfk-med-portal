@@ -160,11 +160,17 @@ export async function getEnrollmentsWithStudentDetails(courseId: string): Promis
     }
 
     // Create a user map for O(1) lookups
-    const usersMap = new Map(allUsers.map((user: any) => [user.id, user]));
+    const usersMapById = new Map(allUsers.map((user: any) => [user.id, user]));
+    const usersMapByUid = new Map(
+      allUsers
+        .filter((user: any) => user.uid)
+        .map((user: any) => [user.uid, user])
+    );
 
     // Combine enrollment and user data
     const enrollmentsWithDetails = activeEnrollments.map(enrollment => {
-      const student = usersMap.get(enrollment.studentId) as any;
+      const student = (usersMapById.get(enrollment.studentId) ||
+        usersMapByUid.get(enrollment.studentId)) as any;
       return {
         ...enrollment,
         studentName: student?.name || student?.email || 'Unknown Student',
@@ -390,4 +396,3 @@ export async function createSampleEnrollments(): Promise<void> {
     throw error;
   }
 }
-
