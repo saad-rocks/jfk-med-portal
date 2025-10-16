@@ -211,4 +211,38 @@ export type TimeTrackingStats = {
   currentSession?: TimeCardSession;
 };
 
+// Registration Request Types
+export type RegistrationRequestStatus = "pending" | "approved" | "rejected";
+
+export type RegistrationRequest = {
+  id?: string;
+  // Basic Information
+  name: string;
+  email: string;
+  phone?: string;
+  role: Role;
+
+  // Student specific fields
+  mdYear?: MDYear;
+  studentId?: string;
+  gpa?: number;
+
+  // Teacher specific fields
+  department?: string;
+  specialization?: string;
+  employeeId?: string;
+
+  // Admin specific fields (should not be allowed via request)
+  adminLevel?: AdminLevel;
+
+  // Request metadata
+  status: RegistrationRequestStatus;
+  requestedAt: number;
+  reviewedAt?: number;
+  reviewedBy?: string; // admin uid who reviewed
+  reviewerName?: string; // admin name who reviewed
+  rejectionReason?: string;
+  approvalNotes?: string;
+};
+
 

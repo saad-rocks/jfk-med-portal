@@ -27,6 +27,15 @@ service cloud.firestore {
         (request.auth.token.email is string && request.auth.token.email.matches('.*student.*'))
       );
     }
+
+    function getSystemSettingsDoc() {
+      return get(/databases/$(database)/documents/system/settings);
+    }
+
+    function enrollmentsEnabled() {
+      let settings = getSystemSettingsDoc();
+      return !settings.exists() || settings.data.allowEnrollment != false;
+    }
     // Default deny - but allow seeding operations for development
     match /{document=**} {
       allow read, write: if false;
@@ -61,7 +70,8 @@ service cloud.firestore {
 
       // Write access - any authenticated user can create (for demo purposes)
       // TODO: Restrict to proper roles once claims are set up
-      allow create, update, delete: if isSignedIn();
+      allow create: if isSignedIn() && (isAdmin() || enrollmentsEnabled());
+      allow update, delete: if isSignedIn();
     }
 
     // Assignments collection rules
@@ -176,6 +186,13 @@ service cloud.firestore {
       // Write access - only teachers/admins can create/manage their own sessions, admins can do anything
       allow create: if isSignedIn() && (isTeacher() || isAdmin()) && (request.auth.uid == request.resource.data.userId || isAdmin());
       allow update, delete: if isSignedIn() && (isTeacher() || isAdmin()) && (request.auth.uid == resource.data.userId || isAdmin());
+    }
+
+    // Registration Requests collection rules
+    match /registrationRequests/{requestId} {
+      // No direct client access - all operations via Cloud Functions
+      // Cloud Functions use Admin SDK which bypasses these rules
+      allow read, write: if false;
     }
   }
 }

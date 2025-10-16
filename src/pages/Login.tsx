@@ -128,7 +128,6 @@ export default function Login() {
           setLoginAnnouncements([]);
         }
       } catch (error) {
-        console.error("Failed to load announcements feed:", error);
         if (!cancelled) {
           setAnnouncementsError("Unable to load announcements at the moment.");
         }
@@ -149,26 +148,91 @@ export default function Login() {
     e.preventDefault();
     setLoading(true);
     setMessage(null);
-    
+
     try {
+      // Try to authenticate first
       const credential = await signInWithEmailAndPassword(auth, email, password);
+
+      // Update last login
       try {
         await updateUserLastLogin(credential.user.uid);
       } catch (updateError) {
-        console.warn("Could not record last login timestamp:", updateError);
+        // Ignore update errors
       }
+
       setMessage({ text: "Welcome back! Redirecting to dashboard...", type: 'success' });
       setTimeout(() => navigate("/", { replace: true }), 1000);
     } catch (err: unknown) {
       const authError = err as AuthError;
-      setMessage({ 
-        text: authError.code === 'auth/invalid-credential' 
-          ? "Invalid email or password. Please try again." 
-          : "Login failed. Please check your credentials.",
-        type: 'error' 
-      });
-    } finally { 
-      setLoading(false); 
+
+      // If authentication failed with user-not-found or invalid-credential,
+      // check if they have a pending/rejected registration request
+      if (authError.code === 'auth/user-not-found' || authError.code === 'auth/invalid-credential' || authError.code === 'auth/wrong-password') {
+        try {
+          const { collection, query, where, getDocs } = await import('firebase/firestore');
+          const { db } = await import('../firebase');
+
+          // Check for pending request
+          const pendingRequestQuery = query(
+            collection(db, 'registrationRequests'),
+            where('email', '==', email),
+            where('status', '==', 'pending')
+          );
+          const pendingRequests = await getDocs(pendingRequestQuery);
+
+          if (!pendingRequests.empty) {
+            setMessage({
+              text: "Your registration request is pending admin approval. Please wait for approval before attempting to login.",
+              type: 'error'
+            });
+            setLoading(false);
+            return;
+          }
+
+          // Check for rejected request
+          const rejectedRequestQuery = query(
+            collection(db, 'registrationRequests'),
+            where('email', '==', email),
+            where('status', '==', 'rejected')
+          );
+          const rejectedRequests = await getDocs(rejectedRequestQuery);
+
+          if (!rejectedRequests.empty) {
+            const rejectedDoc = rejectedRequests.docs[0];
+            const rejectionReason = rejectedDoc.data().rejectionReason || "No reason provided";
+            setMessage({
+              text: `Your registration request was rejected. Reason: ${rejectionReason}`,
+              type: 'error'
+            });
+            setLoading(false);
+            return;
+          }
+        } catch (firestoreError) {
+          // If Firestore check fails, just show the regular error message
+          console.error('Error checking registration requests:', firestoreError);
+        }
+
+        // No pending/rejected request found, show authentication error
+        if (authError.code === 'auth/user-not-found') {
+          setMessage({
+            text: "No account found. Please request access first.",
+            type: 'error'
+          });
+        } else {
+          setMessage({
+            text: "Invalid email or password. Please try again.",
+            type: 'error'
+          });
+        }
+      } else {
+        // Other authentication errors
+        setMessage({
+          text: "Login failed. Please check your credentials.",
+          type: 'error'
+        });
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -207,73 +271,71 @@ export default function Login() {
         throw new Error("Password must be at least 6 characters long");
       }
 
-      // Prepare user data based on role
-      const userData = {
+      // Don't allow admin registration via public form
+      if (signUpForm.role === 'admin') {
+        throw new Error("Admin accounts must be created by existing administrators");
+      }
+
+      // Prepare registration request data
+      const requestData: any = {
         name: signUpForm.name,
         email: signUpForm.email,
         password: signUpForm.password,
-        phone: signUpForm.phone || undefined,
+        phone: signUpForm.phone || null,
         role: signUpForm.role
       };
 
       // Add role-specific fields
       if (signUpForm.role === 'student') {
-        Object.assign(userData, {
-          mdYear: signUpForm.mdYear,
-          studentId: signUpForm.studentId || undefined,
-          gpa: signUpForm.gpa ? parseFloat(signUpForm.gpa) : undefined,
-          enrollmentDate: new Date()
-        });
+        requestData.mdYear = signUpForm.mdYear;
+        requestData.studentId = signUpForm.studentId || null;
+        requestData.gpa = signUpForm.gpa || null;
       } else if (signUpForm.role === 'teacher') {
-        Object.assign(userData, {
-          department: signUpForm.department || undefined,
-          specialization: signUpForm.specialization || undefined,
-          employeeId: signUpForm.employeeId || undefined,
-          hireDate: new Date()
-        });
-      } else if (signUpForm.role === 'admin') {
-        Object.assign(userData, {
-          adminLevel: signUpForm.adminLevel,
-          permissions: signUpForm.adminLevel === 'super'
-            ? ['user_management', 'system_admin', 'user_creation', 'course_management']
-            : ['user_management', 'user_creation']
-        });
+        requestData.department = signUpForm.department || null;
+        requestData.specialization = signUpForm.specialization || null;
+        requestData.employeeId = signUpForm.employeeId || null;
       }
 
-      console.log('Creating user with data:', userData);
+      // Submit registration request via Cloud Function
+      const callable = httpsCallable(functions, 'submitRegistrationRequest');
+      const response = await callable(requestData);
+      const data = response.data as any;
 
-      const newUser = await createUser(userData);
-
-      setSignUpMessage({
-        text: `Account created successfully! Welcome ${newUser.name}. You can now sign in.`,
-        type: 'success'
-      });
-
-      // Close modal after successful creation
-      setTimeout(() => {
-        setShowSignUpModal(false);
-        setSignUpMessage(null);
-        // Reset form
-        setSignUpForm({
-          name: "",
-          email: "",
-          password: "",
-          phone: "",
-          role: "student",
-          mdYear: "MD-1",
-          studentId: "",
-          gpa: "",
-          department: "",
-          specialization: "",
-          employeeId: "",
-          adminLevel: "regular"
+      if (data?.ok) {
+        setSignUpMessage({
+          text: data.message || 'Registration request submitted successfully! An administrator will review your request shortly. You will be able to login once your account is approved.',
+          type: 'success'
         });
-      }, 2000);
 
-    } catch (error) {
-      console.error('Sign up error:', error);
+        // Close modal after successful submission
+        setTimeout(() => {
+          setShowSignUpModal(false);
+          setSignUpMessage(null);
+          // Reset form
+          setSignUpForm({
+            name: "",
+            email: "",
+            password: "",
+            phone: "",
+            role: "student",
+            mdYear: "MD-1",
+            studentId: "",
+            gpa: "",
+            department: "",
+            specialization: "",
+            employeeId: "",
+            adminLevel: "regular"
+          });
+        }, 3000);
+      } else {
+        throw new Error("Failed to submit registration request");
+      }
+
+    } catch (error: any) {
+      // Handle Firebase Function errors
+      const errorMessage = error?.message || "Failed to submit request. Please try again.";
       setSignUpMessage({
-        text: error instanceof Error ? error.message : "Failed to create account. Please try again.",
+        text: errorMessage,
         type: 'error'
       });
     } finally {
@@ -648,13 +710,12 @@ export default function Login() {
                     <label className="text-sm font-medium text-slate-700">Role *</label>
                     <select
                       value={signUpForm.role}
-                      onChange={(e) => updateSignUpForm('role', e.target.value as "student" | "teacher" | "admin")}
+                      onChange={(e) => updateSignUpForm('role', e.target.value as "student" | "teacher")}
                       className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
                       required
                     >
                       <option value="student">Student</option>
-                      <option value="teacher">Teacher</option>
-                      <option value="admin">Administrator</option>
+                      <option value="teacher">Teacher / Faculty</option>
                     </select>
                   </div>
                 </div>

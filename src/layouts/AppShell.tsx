@@ -1,4 +1,4 @@
-import { Menu, Bell, Search, Settings, LogOut, Home, BookOpen, ClipboardList, GraduationCap, Users, Layers, CalendarCheck, FileText, Sun, User, Stethoscope, Heart, UserCheck, Calendar, Clock, Award } from "lucide-react";
+import { Menu, Bell, Search, Settings, LogOut, Home, BookOpen, ClipboardList, GraduationCap, Users, Layers, CalendarCheck, FileText, Sun, User, Stethoscope, Heart, UserCheck, Calendar, Clock, Award, UserPlus } from "lucide-react";
 import { Link, NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useState, useEffect, Suspense, lazy, useCallback, useMemo, memo } from "react";
 import { signOut } from "firebase/auth";
@@ -35,7 +35,6 @@ function AppShell() {
   const location = useLocation();
 
   // Debug: Log role for troubleshooting
-  console.log('🔧 AppShell - Current role:', role, 'User email:', user?.email);
 
   // Close sidebar on mobile when route changes
   useEffect(() => {
@@ -47,7 +46,6 @@ function AppShell() {
       await signOut(auth);
       navigate('/login');
     } catch (error) {
-      console.error('Sign out error:', error);
     }
   }, [navigate]);
 
@@ -192,6 +190,7 @@ function AppShell() {
                 {role === 'admin' ? (
                   <>
                     <SidebarLink to="/manage-users" icon={<UserCheck size={18} />} label="Manage Users" />
+                    <SidebarLink to="/registration-requests" icon={<UserPlus size={18} />} label="Registration Requests" />
                     <SidebarLink to="/sessions" icon={<Calendar size={18} />} label="Sessions" />
                   </>
                 ) : role === 'teacher' ? (
@@ -204,7 +203,11 @@ function AppShell() {
                   <SidebarLink to="/time" icon={<Clock size={18} />} label="Time Tracking" />
                 )}
                 <SidebarLink to="/attendance" icon={<CalendarCheck size={18} />} label="Attendance" />
-                <SidebarLink to="/announcements" icon={<FileText size={18} />} label="Announcements" />
+                {role === "student" ? (
+                  <SidebarLink to="/notice-board" icon={<Bell size={18} />} label="Notice Board" />
+                ) : (
+                  <SidebarLink to="/announcements" icon={<FileText size={18} />} label="Announcements" />
+                )}
                 <SidebarLink to="/semesters" icon={<Layers size={18} />} label="Semesters" />
 
                 <div className="pt-4 mt-4 border-t border-slate-200/60">

@@ -8,7 +8,7 @@ const db = getFirestore();
 
 // CORS configuration for Cloud Functions v2
 const corsOptions = {
-  cors: ["http://localhost:5173", "http://localhost:3000", "https://jfk-med-portal.web.app", "https://jfk-med-portal.firebaseapp.com"]
+  cors: ["http://localhost:5173", "http://localhost:5174", "http://localhost:3000", "https://jfk-med-portal.web.app", "https://jfk-med-portal.firebaseapp.com"]
 };
 
 // Admin UIDs that can perform user management operations
@@ -237,6 +237,7 @@ export const getSystemSettings = onCall(corsOptions, async (request) => {
         maintenanceMode: false,
         maintenanceMessage: "System is currently under maintenance. Please check back later.",
         allowRegistration: true,
+        allowEnrollment: true,
         emailVerification: true,
         twoFactorAuth: false,
         sessionTimeout: 30,
@@ -288,6 +289,7 @@ export const updateSystemSettings = onCall(corsOptions, async (request) => {
       maintenanceMode: settings.maintenanceMode,
       maintenanceMessage: settings.maintenanceMessage,
       allowRegistration: settings.allowRegistration,
+      allowEnrollment: settings.allowEnrollment,
       emailVerification: settings.emailVerification,
       twoFactorAuth: settings.twoFactorAuth,
       sessionTimeout: settings.sessionTimeout,
@@ -330,6 +332,293 @@ export const updateSystemSettings = onCall(corsOptions, async (request) => {
   } catch (error) {
     console.error("Error updating system settings:", error);
     throw new HttpsError("internal", "Failed to update system settings");
+  }
+});
+
+// ==================== REGISTRATION REQUESTS MANAGEMENT ====================
+
+// Callable: Submit a registration request (public - no auth required)
+export const submitRegistrationRequest = onCall(corsOptions, async (request) => {
+  const { name, email, password, phone, role, mdYear, studentId, gpa, department, specialization, employeeId } = (request.data ?? {});
+
+  // Validate required fields
+  if (!name || !email || !password || !role) {
+    throw new HttpsError("invalid-argument", "Name, email, password, and role are required");
+  }
+
+  if (password.length < 6) {
+    throw new HttpsError("invalid-argument", "Password must be at least 6 characters long");
+  }
+
+  // Don't allow admin registration via public form
+  if (role === "admin") {
+    throw new HttpsError("permission-denied", "Admin accounts must be created by existing administrators");
+  }
+
+  // Validate role
+  if (!["student", "teacher"].includes(role)) {
+    throw new HttpsError("invalid-argument", "Invalid role. Must be 'student' or 'teacher'");
+  }
+
+  try {
+    // Check if email already has a pending request
+    const existingRequestQuery = db.collection("registrationRequests")
+      .where("email", "==", email)
+      .where("status", "==", "pending");
+
+    const existingRequests = await existingRequestQuery.get();
+
+    if (!existingRequests.empty) {
+      throw new HttpsError("already-exists", "You already have a pending registration request. Please wait for admin approval.");
+    }
+
+    // Check if email already exists in Firebase Auth
+    try {
+      await admin.auth().getUserByEmail(email);
+      throw new HttpsError("already-exists", "An account with this email already exists. Please try logging in.");
+    } catch (error: any) {
+      // User not found is expected - continue
+      if (error.code !== "auth/user-not-found") {
+        throw error;
+      }
+    }
+
+    // Prepare registration request data
+    const requestData: any = {
+      name,
+      email,
+      password, // Will be used to create account after approval
+      phone: phone || null,
+      role,
+      status: "pending",
+      requestedAt: FieldValue.serverTimestamp()
+    };
+
+    // Add role-specific fields
+    if (role === "student") {
+      requestData.mdYear = mdYear || "MD-1";
+      requestData.studentId = studentId || null;
+      requestData.gpa = gpa ? parseFloat(gpa) : null;
+    } else if (role === "teacher") {
+      requestData.department = department || null;
+      requestData.specialization = specialization || null;
+      requestData.employeeId = employeeId || null;
+    }
+
+    // Create registration request
+    const docRef = await db.collection("registrationRequests").add(requestData);
+
+    console.log(`✅ Registration request submitted: ${email} -> ${role}`);
+    return {
+      ok: true,
+      requestId: docRef.id,
+      message: "Registration request submitted successfully! An administrator will review your request shortly."
+    };
+  } catch (error) {
+    console.error("Error submitting registration request:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", "Failed to submit registration request");
+  }
+});
+
+// Callable: Get all registration requests (admin-only)
+export const getRegistrationRequests = onCall(corsOptions, async (request) => {
+  const caller = request.auth;
+
+  if (!await isCallerAdmin(caller)) {
+    throw new HttpsError("permission-denied", "Admin access required.");
+  }
+
+  const { status, limit = 50 } = (request.data ?? {});
+
+  try {
+    // Get all documents first, then filter in memory to avoid index requirement
+    const snapshot = await db.collection("registrationRequests")
+      .orderBy("requestedAt", "desc")
+      .limit(limit * 3) // Get more to ensure we have enough after filtering
+      .get();
+
+    let requests = snapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        ...data
+      };
+    });
+
+    // Filter by status in memory if status is provided
+    if (status) {
+      requests = requests.filter((req: any) => req.status === status);
+      requests = requests.slice(0, limit); // Apply limit after filtering
+    } else {
+      requests = requests.slice(0, limit);
+    }
+
+    return { ok: true, requests, count: requests.length };
+  } catch (error) {
+    console.error("Error fetching registration requests:", error);
+    throw new HttpsError("internal", "Failed to fetch registration requests");
+  }
+});
+
+// Callable: Approve registration request and create user account (admin-only)
+export const approveRegistrationRequest = onCall(corsOptions, async (request) => {
+  const caller = request.auth;
+
+  if (!await isCallerAdmin(caller)) {
+    throw new HttpsError("permission-denied", "Admin access required.");
+  }
+
+  const { requestId, approvalNotes } = (request.data ?? {});
+  if (!requestId) {
+    throw new HttpsError("invalid-argument", "requestId is required");
+  }
+
+  try {
+    if (!caller) {
+      throw new HttpsError("unauthenticated", "Must be authenticated");
+    }
+
+    // Get the registration request
+    const requestRef = db.collection("registrationRequests").doc(requestId);
+    const requestDoc = await requestRef.get();
+
+    if (!requestDoc.exists) {
+      throw new HttpsError("not-found", "Registration request not found");
+    }
+
+    const requestData = requestDoc.data();
+
+    if (requestData?.status !== "pending") {
+      throw new HttpsError("failed-precondition", "Request has already been processed");
+    }
+
+    // Create Firebase Auth user
+    const userRecord = await admin.auth().createUser({
+      email: requestData?.email,
+      password: requestData?.password,
+      displayName: requestData?.name,
+      emailVerified: true // Auto-verify email for approved users
+    });
+
+    // Create Firestore user profile
+    const userProfile: any = {
+      uid: userRecord.uid,
+      name: requestData?.name,
+      email: requestData?.email,
+      phone: requestData?.phone || null,
+      role: requestData?.role,
+      status: "active",
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+      approvedBy: caller.uid,
+      approvedByEmail: (caller as any).email || null
+    };
+
+    // Add role-specific fields
+    if (requestData?.role === "student") {
+      userProfile.mdYear = requestData.mdYear || "MD-1";
+      userProfile.studentId = requestData.studentId || `JFK${Date.now().toString().slice(-6)}`;
+      userProfile.gpa = requestData.gpa || null;
+      userProfile.enrollmentDate = FieldValue.serverTimestamp();
+    } else if (requestData?.role === "teacher") {
+      userProfile.department = requestData.department || null;
+      userProfile.specialization = requestData.specialization || null;
+      userProfile.employeeId = requestData.employeeId || `JFK-FAC-${Date.now().toString().slice(-6)}`;
+      userProfile.hireDate = FieldValue.serverTimestamp();
+    }
+
+    await db.collection("users").add(userProfile);
+
+    // Update registration request status
+    await requestRef.update({
+      status: "approved",
+      reviewedAt: FieldValue.serverTimestamp(),
+      reviewedBy: caller.uid,
+      reviewerName: (caller as any).displayName || (caller as any).email || null,
+      approvalNotes: approvalNotes || null
+    });
+
+    // Log audit entry
+    await db.collection("auditLogs").add({
+      action: "REGISTRATION_APPROVED",
+      performedBy: caller.uid,
+      performedByEmail: (caller as any).email || null,
+      targetEmail: requestData?.email,
+      targetRole: requestData?.role,
+      timestamp: FieldValue.serverTimestamp()
+    });
+
+    console.log(`✅ Registration request approved: ${requestData?.email} -> ${requestData?.role}`);
+    return {
+      ok: true,
+      message: "Registration request approved and user account created successfully",
+      uid: userRecord.uid
+    };
+  } catch (error) {
+    console.error("Error approving registration request:", error);
+    throw new HttpsError("internal", "Failed to approve registration request");
+  }
+});
+
+// Callable: Reject registration request (admin-only)
+export const rejectRegistrationRequest = onCall(corsOptions, async (request) => {
+  const caller = request.auth;
+
+  if (!await isCallerAdmin(caller)) {
+    throw new HttpsError("permission-denied", "Admin access required.");
+  }
+
+  const { requestId, rejectionReason } = (request.data ?? {});
+  if (!requestId) {
+    throw new HttpsError("invalid-argument", "requestId is required");
+  }
+
+  try {
+    if (!caller) {
+      throw new HttpsError("unauthenticated", "Must be authenticated");
+    }
+
+    // Get the registration request
+    const requestRef = db.collection("registrationRequests").doc(requestId);
+    const requestDoc = await requestRef.get();
+
+    if (!requestDoc.exists) {
+      throw new HttpsError("not-found", "Registration request not found");
+    }
+
+    const requestData = requestDoc.data();
+
+    if (requestData?.status !== "pending") {
+      throw new HttpsError("failed-precondition", "Request has already been processed");
+    }
+
+    // Update registration request status
+    await requestRef.update({
+      status: "rejected",
+      reviewedAt: FieldValue.serverTimestamp(),
+      reviewedBy: caller.uid,
+      reviewerName: (caller as any).displayName || (caller as any).email || null,
+      rejectionReason: rejectionReason || "No reason provided"
+    });
+
+    // Log audit entry
+    await db.collection("auditLogs").add({
+      action: "REGISTRATION_REJECTED",
+      performedBy: caller.uid,
+      performedByEmail: (caller as any).email || null,
+      targetEmail: requestData?.email,
+      rejectionReason: rejectionReason || "No reason provided",
+      timestamp: FieldValue.serverTimestamp()
+    });
+
+    console.log(`✅ Registration request rejected: ${requestData?.email}`);
+    return { ok: true, message: "Registration request rejected successfully" };
+  } catch (error) {
+    console.error("Error rejecting registration request:", error);
+    throw new HttpsError("internal", "Failed to reject registration request");
   }
 });
 

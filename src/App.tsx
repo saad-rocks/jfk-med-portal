@@ -11,7 +11,10 @@ import AppShell from "./layouts/AppShell";
 // Load test functions in development
 if (import.meta.env.DEV) {
   import('./lib/testSystemFunctions').then(() => {
-    console.log('✅ Test functions loaded. Use: window.testSystemFunctions.runAllTests()');
+  });
+  import('./lib/seedAnnouncements').then(() => {
+  });
+  import('./lib/testAnnouncements').then(() => {
   });
 }
 
@@ -32,12 +35,10 @@ class AppErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundary
   }
 
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
-    console.error('❌ Error Boundary triggered:', error);
     return { hasError: true, error };
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error('❌ App Error Boundary caught an error:', error, errorInfo);
   }
 
   render() {
@@ -163,6 +164,7 @@ const GradesStudent = lazy(() => import("./pages/GradesStudent"));
 
 // Less critical pages
 const Announcements = lazy(() => import("./pages/Announcements"));
+const StudentNoticeBoard = lazy(() => import("./pages/StudentNoticeBoard"));
 const Semesters = lazy(() => import("./pages/Semesters"));
 const Settings = lazy(() => import("./pages/Settings"));
 
@@ -174,6 +176,7 @@ const Sessions = lazy(() => import("./pages/Sessions"));
 
 // Admin pages (rarely used)
 const DatabaseAdmin = lazy(() => import("./pages/DatabaseAdmin"));
+const RegistrationRequests = lazy(() => import("./pages/RegistrationRequests"));
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { user, role, loading } = useRole();
@@ -258,10 +261,12 @@ function App() {
           <Route path="attendance" element={<Attendance />} />
           <Route path="courses/:courseId/gradebook" element={<Gradebook />} />
           <Route path="announcements" element={<Announcements />} />
+          <Route path="notice-board" element={<StudentNoticeBoard />} />
           <Route path="semesters" element={<Semesters />} />
           <Route path="settings" element={<Settings />} />
           <Route path="admin" element={<AdminOnly />} />
           <Route path="database-admin" element={<DatabaseAdmin />} />
+          <Route path="registration-requests" element={<RegistrationRequests />} />
           <Route path="clinical" element={<ClinicalRotations />} />
           <Route path="courses/:courseId/clinical-assessments" element={<ClinicalAssessments />} />
           <Route path="immunizations" element={<Immunizations />} />
