@@ -109,7 +109,6 @@ export async function getAllSessions(): Promise<Session[]> {
     
     return sessions;
   } catch (error) {
-    console.error('Error fetching sessions:', error);
     return [];
   }
 }
@@ -128,7 +127,6 @@ export async function getCurrentSessionFromDB(): Promise<Session | null> {
     // If no manually set current session, fall back to date-based logic
     return getCurrentSession(sessions);
   } catch (error) {
-    console.error('Error getting current session:', error);
     return null;
   }
 }
@@ -147,7 +145,6 @@ export async function getSessionById(sessionId: string): Promise<Session | null>
     }
     return null;
   } catch (error) {
-    console.error('Error fetching session:', error);
     return null;
   }
 }
@@ -215,7 +212,6 @@ export async function createSession(sessionData: CreateSessionInput): Promise<Se
     
     return newSession;
   } catch (error) {
-    console.error('Error creating session:', error);
     throw new Error('Failed to create session: ' + (error as Error).message);
   }
 }
@@ -246,7 +242,6 @@ export async function setSessionAsCurrent(sessionId: string): Promise<void> {
     
     await batch.commit();
   } catch (error) {
-    console.error('Error setting session as current:', error);
     throw new Error('Failed to set session as current');
   }
 }
@@ -282,7 +277,6 @@ export async function updateSession(sessionId: string, updates: Partial<Session>
     // Update current session status after any changes
     await updateCurrentSessionStatus();
   } catch (error) {
-    console.error('Error updating session:', error);
     throw new Error('Failed to update session');
   }
 }
@@ -296,7 +290,6 @@ export async function deleteSession(sessionId: string): Promise<void> {
     // Update current session status after deletion
     await updateCurrentSessionStatus();
   } catch (error) {
-    console.error('Error deleting session:', error);
     throw new Error('Failed to delete session');
   }
 }
@@ -323,7 +316,6 @@ export async function updateCurrentSessionStatus(): Promise<void> {
     
     await batch.commit();
   } catch (error) {
-    console.error('Error updating current session status:', error);
   }
 
 }
@@ -377,7 +369,6 @@ export async function initializeDefaultSessions(year: number = new Date().getFul
     const yearSessions = existingSessions.filter(s => s.year === year);
     
     if (yearSessions.length > 0) {
-      console.log(`Sessions for ${year} already exist`);
       return;
     }
     
@@ -409,9 +400,7 @@ export async function initializeDefaultSessions(year: number = new Date().getFul
       });
     }
     
-    console.log(`Initialized default sessions for ${year}`);
   } catch (error) {
-    console.error('Error initializing default sessions:', error);
   }
 }
 

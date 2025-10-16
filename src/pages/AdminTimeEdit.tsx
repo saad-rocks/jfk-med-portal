@@ -8,11 +8,13 @@ import { useRole } from "../hooks/useRole";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { updateTimeEntry, calculateHours } from "../lib/timeTracking";
+import { useToast } from "../hooks/useToast";
 
 export default function AdminTimeEdit() {
   const navigate = useNavigate();
   const { role } = useRole();
   const { entryId } = useParams();
+  const { push } = useToast();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -60,6 +62,26 @@ export default function AdminTimeEdit() {
       const totalHours = calculateHours(clockIn, clockOut);
       await updateTimeEntry(entryId, { date, clockIn, clockOut, totalHours, notes });
       navigate('/time', { replace: true });
+    } catch (error) {
+      if (error instanceof Error && error.message === 'TIME_ENTRY_OVERLAP') {
+        push({
+          title: 'Overlapping Entry',
+          description: 'The selected time range overlaps another entry for this user.',
+          variant: 'error'
+        });
+      } else if (error instanceof Error && error.message === 'TIME_ENTRY_INVALID_RANGE') {
+        push({
+          title: 'Invalid Time Range',
+          description: 'Clock out time must be after clock in time.',
+          variant: 'error'
+        });
+      } else {
+        push({
+          title: 'Update Failed',
+          description: 'Could not update the time entry. Please try again.',
+          variant: 'error'
+        });
+      }
     } finally {
       setSaving(false);
     }
@@ -103,4 +125,3 @@ export default function AdminTimeEdit() {
     </div>
   );
 }
-

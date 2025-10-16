@@ -7,6 +7,7 @@ export interface SystemSettings {
   maintenanceMode: boolean;
   maintenanceMessage: string;
   allowRegistration: boolean;
+  allowEnrollment: boolean;
   emailVerification: boolean;
   twoFactorAuth: boolean;
   sessionTimeout: number;
@@ -52,7 +53,6 @@ export function useSystemSettings(): UseSystemSettingsReturn {
         setError(null);
       },
       (err) => {
-        console.error("Error listening to system settings:", err);
         setError(err.message);
         setLoading(false);
       }
@@ -71,7 +71,6 @@ export function useSystemSettings(): UseSystemSettingsReturn {
         setSettings(data.settings);
       }
     } catch (err: any) {
-      console.error("Error fetching default settings:", err);
       setError(err.message);
     }
   };
@@ -91,7 +90,6 @@ export function useSystemSettings(): UseSystemSettingsReturn {
 
       // Settings will be automatically updated via the real-time listener
     } catch (err: any) {
-      console.error("Error updating system settings:", err);
       setError(err.message);
       throw err;
     } finally {
@@ -112,7 +110,6 @@ export function useSystemSettings(): UseSystemSettingsReturn {
         setSettings(data.settings);
       }
     } catch (err: any) {
-      console.error("Error refreshing settings:", err);
       setError(err.message);
     } finally {
       setLoading(false);

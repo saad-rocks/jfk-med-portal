@@ -100,7 +100,6 @@ export default function CreateAssignment({
         const usage = await getCourseWeightUsage(cid);
         setWeightUsage(usage);
       } catch (e) {
-        console.error('Error loading weight usage:', e);
         setWeightUsage(null);
       }
     })();
@@ -110,55 +109,39 @@ export default function CreateAssignment({
   const loadCourses = async () => {
     if (!courseId && user && role === 'teacher') {
       try {
-        console.log("🔍 Loading teacher courses for user:", user.uid, user.email, "Role:", role);
 
         // Debug: Check what's in the teacher assignments collection
         await debugTeacherAssignments();
 
         // First, get the user's Firestore document ID
         const allUsers = await getAllUsers();
-        console.log("👥 All users loaded:", allUsers.length, "users");
-        console.log("🔍 Looking for user with email:", user.email);
         
         const currentUser = allUsers.find(u => u.email?.toLowerCase() === user.email?.toLowerCase());
-        console.log("🎯 Current user found:", currentUser);
         
         if (!currentUser?.id) {
-          console.error("❌ Teacher profile not found in database for email:", user.email);
-          console.log("🔍 Available users:", allUsers.map(u => ({ id: u.id, email: u.email, role: u.role })));
           setTeacherCourses([]);
           setIsRefreshing(false);
           return;
         }
 
-        console.log("✅ Found teacher profile with ID:", currentUser.id, "Role:", currentUser.role);
 
         // Get teacher assignments using the Firestore document ID
-        console.log("🔍 Calling getTeacherAssignments with ID:", currentUser.id);
         const courses = await getTeacherAssignments(currentUser.id);
-        console.log("📚 Teacher courses loaded:", courses.length, "courses:", courses);
         
         // Also try the simpler query function
-        console.log("🔍 Trying checkTeacherAssignments with ID:", currentUser.id);
         const simpleCourses = await checkTeacherAssignments(currentUser.id);
-        console.log("📚 Simple query results:", simpleCourses.length, "courses:", simpleCourses);
         
         // Also check if there are any teacher assignments at all in the collection
         const allTeacherAssignments = await debugTeacherAssignments();
-        console.log("🔍 All teacher assignments in collection:", allTeacherAssignments);
         
         // Check if any assignments match this teacher's ID
         const matchingAssignments = allTeacherAssignments.filter(a => a.teacherId === currentUser.id);
-        console.log("🔍 Assignments matching current teacher ID:", matchingAssignments.length, matchingAssignments);
         
         // Debug: Check the structure of teacher assignments
         if (allTeacherAssignments.length > 0) {
-          console.log("🔍 Sample teacher assignment structure:", allTeacherAssignments[0]);
-          console.log("🔍 All teacher IDs in collection:", allTeacherAssignments.map(a => a.teacherId));
         }
 
         // Also check enrollments for this teacher (in case they're enrolled as students)
-        console.log("🔍 Checking if teacher is enrolled in any courses...");
         const enrollmentsQuery = query(
           collection(db, "enrollments"),
           where("studentId", "==", currentUser.id), // Use Firestore document ID
@@ -166,19 +149,16 @@ export default function CreateAssignment({
         );
         const enrollmentsSnap = await getDocs(enrollmentsQuery);
         const enrollments = enrollmentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        console.log("📚 Teacher enrollments found:", enrollments.length, enrollments);
 
         let finalCourses: Array<TeacherAssignment & { id: string }> | FallbackCourse[] = courses;
 
         // If no teacher assignments found, try the simple query results
         if (courses.length === 0 && simpleCourses.length > 0) {
-          console.log("🔄 Using simple query results as fallback...");
           finalCourses = simpleCourses;
         }
 
         // If still no courses found, check if teacher is enrolled in any courses
         if (finalCourses.length === 0 && enrollments.length > 0) {
-          console.log("🔄 No teacher assignments found, but teacher is enrolled in courses. Using enrolled courses as fallback...");
           // Get course details for enrolled courses
           const coursesCollection = collection(db, "courses");
           const enrolledCourses: FallbackCourse[] = [];
@@ -199,26 +179,13 @@ export default function CreateAssignment({
                 });
               }
             } catch (error) {
-              console.error("Error fetching course details:", error);
             }
           }
 
           finalCourses = enrolledCourses;
-          console.log("📚 Using enrolled courses as fallback:", finalCourses.length, finalCourses);
         }
 
         if (finalCourses.length === 0) {
-          console.warn("⚠️ No courses found for teacher. This might indicate:");
-          console.warn("  - Teacher is not assigned to any courses in the teacherAssignments collection");
-          console.warn("  - teacherAssignments collection is empty");
-          console.warn("  - User ID mismatch:", currentUser.id);
-          console.warn("  - Check if teacher was properly assigned to courses via Manage Users");
-          console.warn("🔧 DEBUG: Run these commands in console to investigate:");
-          console.warn("   - checkDatabase() // See all collections");
-          console.warn("   - checkUser('" + currentUser.id + "') // Check this specific user");
-          console.warn("   - checkCourses() // See all available courses");
-          console.warn("   - enrollUser('" + currentUser.id + "', 'COURSE_ID') // Enroll in a course");
-          console.warn("   - assignTeacher('" + currentUser.id + "', '" + user.email + "', 'COURSE_ID') // Assign as teacher");
 
           // Make debug functions globally available
           if (typeof window !== 'undefined') {
@@ -233,7 +200,6 @@ export default function CreateAssignment({
         setTeacherCourses(finalCourses);
         setIsRefreshing(false);
       } catch (error) {
-        console.error("❌ Error loading teacher courses:", error);
         setIsRefreshing(false);
       }
     }
@@ -318,7 +284,6 @@ export default function CreateAssignment({
       await createAssignment(assignmentData);
       onSuccess?.();
     } catch (error) {
-      console.error("Error creating assignment:", error);
     } finally {
       setIsSubmitting(false);
     }

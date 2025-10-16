@@ -70,17 +70,13 @@ export async function seedUsersData(): Promise<void> {
     const snapshot = await getDocs(usersRef);
     
     if (snapshot.empty) {
-      console.log('🌱 Seeding initial user data...');
       
       for (const userData of seedUsers) {
         await addDoc(usersRef, userData);
       }
       
-      console.log('✅ Seed data added successfully!');
     } else {
-      console.log('📊 Users collection already has data, skipping seed.');
     }
   } catch (error) {
-    console.error('❌ Error seeding user data:', error);
   }
 }

@@ -27,14 +27,11 @@ export function useRole(): UserProfile {
       if (userProfile) {
         setRole(userProfile.role);
         setMdYear(userProfile.role === 'student' ? userProfile.mdYear : undefined);
-        console.log("👤 User profile loaded:", userProfile.role, "for user:", user.email);
       } else {
-        console.warn("⚠️ No user profile found for authenticated user:", user.email);
         setRole(undefined);
         setMdYear(undefined);
       }
     } catch (error) {
-      console.error("❌ Error loading user profile:", error);
       setRole(undefined);
       setMdYear(undefined);
     }

@@ -213,7 +213,6 @@ function Dashboard() {
             const profile = await getUserByUid(safeUser.uid);
             studentProfileId = profile?.id;
           } catch (profileError) {
-            console.error('Failed to load student profile for dashboard:', profileError);
           }
         }
 
@@ -264,7 +263,6 @@ function Dashboard() {
         }
 
       } catch (error) {
-        console.error('Error fetching dashboard data:', error);
       } finally {
         setIsLoading(false);
       }

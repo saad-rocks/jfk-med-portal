@@ -66,23 +66,19 @@ export default function ManageUsers() {
   // Load users based on selected role or all users
   const loadUsers = useCallback(async () => {
     try {
-      console.log('📊 Loading users...', selectedRole ? `Role: ${selectedRole}` : 'All users');
       setLoading(true);
       setError(null);
       
       let userData: UserData[];
       if (selectedRole) {
         userData = await getUsersByRole(selectedRole);
-        console.log(`📋 Loaded ${userData.length} ${selectedRole}s:`, userData);
       } else {
         userData = await getAllUsers();
-        console.log(`📋 Loaded ${userData.length} total users:`, userData);
       }
       
       setUsers(userData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load users');
-      console.error('❌ Error loading users:', err);
     } finally {
       setLoading(false);
     }
@@ -91,12 +87,9 @@ export default function ManageUsers() {
   // Load user statistics
   const loadUserStats = async () => {
     try {
-      console.log('📈 Loading user statistics...');
       const stats = await getUserStats();
-      console.log('📊 User stats loaded:', stats);
       setUserStats(stats);
     } catch (err) {
-      console.error('❌ Error loading user stats:', err);
     }
   };
 
@@ -110,7 +103,6 @@ export default function ManageUsers() {
       await loadUsers();
       await loadUserStats();
     } catch (error) {
-      console.error('Error initializing data:', error);
       setError('Failed to initialize user data');
     }
   }, [loadUsers]);
@@ -172,10 +164,8 @@ export default function ManageUsers() {
   };
 
   const handleAddUser = () => {
-    console.log('➕ Adding new user - setting editingUser to null');
     setEditingUser(null);
     setShowAddModal(true);
-    console.log('📝 Modal state:', { editingUser: null, showAddModal: true });
   };
 
   const handleEditUser = (user: UserData) => {
@@ -194,7 +184,6 @@ export default function ManageUsers() {
       await loadUserStats(); // Update statistics
       alert('User deleted successfully');
     } catch (err) {
-      console.error('Error deleting user:', err);
       alert('Failed to delete user: ' + (err instanceof Error ? err.message : 'Unknown error'));
     }
   };
@@ -510,48 +499,33 @@ export default function ManageUsers() {
           onClose={() => setShowAddModal(false)}
           onSave={async (userData) => {
             try {
-              console.log('💾 Saving user data:', userData);
               
               if (editingUser) {
                 // Update existing user
-                console.log('📝 Updating user:', editingUser.id);
                 await updateUser(editingUser.id!, userData);
-                console.log('✅ User updated successfully');
                 alert('User updated successfully');
               } else {
                 // Create new user
-                console.log('👤 Creating new user...');
                 
                 // Validate that password is present for new users
                 if (!userData.password || userData.password.trim() === '') {
                   throw new Error('Password is required for new users');
                 }
                 
-                console.log('🔐 Password provided:', userData.password ? 'Yes' : 'No');
-                console.log('📧 Email:', userData.email);
-                console.log('👤 Name:', userData.name);
-                console.log('🎭 Role:', userData.role);
                 
                 const newUser = await createUserWithoutSignIn(userData as CreateUserInput);
-                console.log('✅ User created successfully:', newUser);
                 alert('User created successfully');
               }
               
               setShowAddModal(false);
-              console.log('🔄 Reloading users...');
               await loadUsers(); // Reload users
               await loadUserStats(); // Update statistics
-              console.log('✅ Data reloaded');
             } catch (err) {
-              console.error('❌ Error saving user:', err);
-              console.error('❌ Full error object:', err);
               
               // Show more detailed error message
               let errorMessage = 'Unknown error';
               if (err instanceof Error) {
                 errorMessage = err.message;
-                console.error('❌ Error message:', err.message);
-                console.error('❌ Error stack:', err.stack);
               }
               
               alert('Failed to save user: ' + errorMessage);
@@ -572,7 +546,6 @@ interface UserModalProps {
 }
 
 function UserModal({ user, role, onClose, onSave }: UserModalProps) {
-  console.log('🔧 UserModal props:', { user, role, isNewUser: !user });
   
   const [formData, setFormData] = useState({
     name: user?.name || '',
@@ -613,14 +586,11 @@ function UserModal({ user, role, onClose, onSave }: UserModalProps) {
       return;
     }
     
-    console.log('📝 Form data being submitted:', { ...formData, role });
     onSave({ ...formData, role });
   };
 
   const handleInputChange = (field: string, value: string | number) => {
-    console.log(`📝 Field changed: ${field} = ${value}`);
     const newFormData = { ...formData, [field]: value };
-    console.log('📋 Updated form data:', newFormData);
     setFormData(newFormData);
   };
 
@@ -674,7 +644,6 @@ function UserModal({ user, role, onClose, onSave }: UserModalProps) {
               type="password"
               value={formData.password}
               onChange={(e) => {
-                console.log('🔑 Password field changed:', e.target.value);
                 handleInputChange('password', e.target.value);
               }}
               required={!user} // Required only for new users

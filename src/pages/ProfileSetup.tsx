@@ -45,7 +45,6 @@ export default function ProfileSetup() {
       if (!existingSnapshot.empty) {
         // Profile already exists
         const existingDoc = existingSnapshot.docs[0];
-        console.log(`ℹ️ User profile already exists: ${user!.uid} -> ${existingDoc.data().role}`);
         setMessage({ text: "Profile already exists! Redirecting to dashboard...", type: 'success' });
       } else {
         // Create new user profile
@@ -76,24 +75,20 @@ export default function ProfileSetup() {
         const docRef = doc(collection(db, 'users'));
         await setDoc(docRef, userProfile);
 
-        console.log(`✅ User profile created: ${user!.uid} -> ${role}`);
         setMessage({ text: "Profile created successfully! Redirecting to dashboard...", type: 'success' });
       }
 
       // Refresh the user profile data and then navigate
       setTimeout(() => {
-        console.log("🔄 Refreshing user profile and redirecting...");
         refreshProfile();
 
         // Give a moment for the profile refresh to complete
         setTimeout(() => {
-          console.log("🔄 Attempting navigation to dashboard...");
           navigate("/", { replace: true });
 
           // Fallback: If navigation doesn't work, force a page reload
           setTimeout(() => {
             if (window.location.pathname === '/profile-setup') {
-              console.log("🔄 Navigation failed, forcing page reload...");
               window.location.href = '/';
             }
           }, 1000);
@@ -101,13 +96,6 @@ export default function ProfileSetup() {
       }, 1000);
 
     } catch (error: any) {
-      console.error("Profile setup error:", error);
-      console.error("Error details:", {
-        message: error.message,
-        code: error.code,
-        details: error.details,
-        stack: error.stack
-      });
 
       // More specific error messages
       let errorMessage = "Failed to create profile. Please try again.";

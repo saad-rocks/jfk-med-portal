@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { createCourse, listCourses } from "../lib/courses";
 import { updateCourse, deleteCourse } from "../lib/coursesSecure";
@@ -11,6 +11,7 @@ import { Input } from "../components/ui/input";
 import { Badge } from "../components/ui/badge";
 import { X, Plus, BookOpen, Users, User as UserIcon, FileText, Edit2, Trash2, CheckCircle, UserPlus, UserMinus, UserCheck, Search, ExternalLink, Clock, GraduationCap, Calendar, ChevronRight } from "lucide-react";
 import { useRole } from "../hooks/useRole";
+import { useSystemSettings } from "../hooks/useSystemSettings";
 import { getAllUsers, type UserProfile } from "../lib/users";
 import {
   createTeacherAssignment,
@@ -37,6 +38,8 @@ export default function Courses() {
   const { push } = useToast();
   const { user, role, mdYear } = useRole();
   const navigate = useNavigate();
+  const { settings: systemSettings } = useSystemSettings();
+  const enrollmentsDisabled = systemSettings?.allowEnrollment === false;
   const [error, setError] = useState<string | null>(null);
   const [courses, setCourses] = useState<Array<Course & { id: string }>>([]);
   const [enrollments, setEnrollments] = useState<Array<Enrollment & { id: string }>>([]);
@@ -100,7 +103,6 @@ export default function Courses() {
           const activeEnrollments = enrollments.filter(e => e.status === 'enrolled');
           counts[course.id] = activeEnrollments.length;
         } catch (error) {
-          console.error(`Error loading enrollments for course ${course.id}:`, error);
           counts[course.id] = 0;
         }
       })
@@ -124,7 +126,6 @@ export default function Courses() {
         }
       } catch (e: unknown) {
         const error = e as Error;
-        console.error('? Error loading courses:', error);
         setError(error?.message ?? "Failed to load courses");
       } finally {
         setInitialLoading(false);
@@ -145,7 +146,6 @@ export default function Courses() {
         const teacherUsers = allUsers.filter(user => user.role === 'teacher' && user.status === 'active');
         setTeachers(teacherUsers);
       } catch (error) {
-        console.error('Error loading teachers:', error);
       } finally {
         setTeachersLoading(false);
       }
@@ -168,7 +168,6 @@ export default function Courses() {
           setEnrollments(studentEnrollments);
         }
       } catch (error) {
-        console.error('Error loading student enrollments:', error);
         setEnrollments([]);
       }
     };
@@ -191,7 +190,6 @@ export default function Courses() {
           setTeacherCourses(teacherAssignments);
         }
       } catch (error) {
-        console.error('Error loading teacher assignments:', error);
         setTeacherCourses([]);
       }
     };
@@ -216,7 +214,7 @@ export default function Courses() {
       setCourseInstructor("");
       setCourseDescription("");
       
-      push({ variant: 'success', title: 'Course created', description: `${form.code} � ${form.title}` });
+      push({ variant: 'success', title: 'Course created', description: `${form.code} ? ${form.title}` });
     } catch (e: unknown) {
       const error = e as Error;
       setError(error?.message ?? "Failed to create course");
@@ -279,7 +277,7 @@ export default function Courses() {
       const items = await listCourses();
       setCourses(items);
       handleCloseEditModal();
-      push({ variant: 'success', title: 'Course updated', description: `${form.code} � ${form.title}` });
+      push({ variant: 'success', title: 'Course updated', description: `${form.code} ? ${form.title}` });
     } catch (e: unknown) {
       const error = e as Error;
       setError(error?.message ?? "Failed to update course");
@@ -306,10 +304,17 @@ export default function Courses() {
 
   // Enrollment functions for students
   async function handleEnrollInCourse(courseId: string) {
+    if (enrollmentsDisabled && role !== 'admin') {
+      push({
+        variant: 'error',
+        title: 'Enrollments are disabled',
+        description: 'Course enrollments are currently paused by the administration.'
+      });
+      return;
+    }
     if (!user?.uid) return;
     
     try {
-      console.log("?? Enrolling user:", user.email, "with UID:", user.uid);
       
       // First, get the user's Firestore document ID
       const allUsers = await getAllUsers();
@@ -319,7 +324,6 @@ export default function Courses() {
         throw new Error("User profile not found in database");
       }
       
-      console.log("?? Found user document ID:", currentUser.id);
       
       const enrollmentData: EnrollmentInput = {
         studentId: currentUser.id, // Use Firestore document ID instead of Firebase Auth UID
@@ -328,12 +332,10 @@ export default function Courses() {
         status: 'enrolled'
       };
       
-      console.log("?? Creating enrollment with data:", enrollmentData);
       await createEnrollment(enrollmentData);
       
       // Refresh enrollments using the Firestore document ID
       const studentEnrollments = await listEnrollmentsForStudent(currentUser.id);
-      console.log("?? Student enrollments after enrollment:", studentEnrollments);
       setEnrollments(studentEnrollments);
 
       // Refresh enrollment counts
@@ -342,7 +344,6 @@ export default function Courses() {
       push({ variant: 'success', title: 'Enrolled successfully', description: 'You have been enrolled in this course' });
     } catch (e: unknown) {
       const error = e as Error;
-      console.error("? Enrollment error:", error);
       setError(error?.message ?? "Failed to enroll in course");
       push({ variant: 'error', title: 'Failed to enroll', description: error?.message });
     }
@@ -459,10 +460,8 @@ export default function Courses() {
       return;
     }
     if (!course.id) {
-      console.log('? Course has no ID:', course);
       return;
     }
-    console.log('?? Navigating to course details:', course.id, course.code, course.title);
     // Scroll to top before navigation
     window.scrollTo({ top: 0, behavior: 'smooth' });
     navigate(`/courses/${course.id}`);
@@ -516,6 +515,13 @@ export default function Courses() {
           )}
         </div>
       </div>
+
+      {enrollmentsDisabled && role !== 'admin' && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+          <Clock className="mt-0.5 h-4 w-4" />
+          <span>Course enrollments are temporarily disabled by the administration.</span>
+        </div>
+      )}
 
       {/* Student tabs to toggle Enrolled vs Available */}
       {role === 'student' && (
@@ -619,7 +625,7 @@ export default function Courses() {
           {filteredCourses.map((course) => {
             const enrollmentCount = courseEnrollmentCounts[course.id] || 0;
             const isEnrolled = isEnrolledInCourse(course.id);
-            const canEnroll = role === 'student' && !isEnrolled;
+            const canEnroll = role === 'student' && !isEnrolled && !enrollmentsDisabled;
             const canUnenroll = role === 'student' && isEnrolled;
 
             // Generate a color based on the course title for variety

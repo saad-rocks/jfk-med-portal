@@ -185,14 +185,12 @@ export default function Attendance() {
               const dates = await getCourseAttendanceDates(course.id);
               sessionCounts[course.id] = Object.keys(dates).length;
             } catch (error) {
-              console.error(`Error loading session count for course ${course.id}:`, error);
               sessionCounts[course.id] = 0;
             }
           }
         }
         setCourseSessionCounts(sessionCounts);
       } else if (role === 'student' && user) {
-        console.log('Loading student data for user:', user.uid);
 
         const [coursesData, usersData, allEnrollments] = await Promise.all([
           listCourses(),
@@ -227,7 +225,6 @@ export default function Attendance() {
         setCurrentView('course-selection');
       }
     } catch (error) {
-      console.error('Error loading initial data:', error);
     } finally {
       setLoading(false);
     }
@@ -267,7 +264,6 @@ export default function Attendance() {
       setCourseAttendanceRecords(courseRecords);
       setCourseAttendancePercentages(coursePercentages);
     } catch (error) {
-      console.error('Error calculating student attendance summary:', error);
       setAttendancePercentage(100);
     }
   };
@@ -283,7 +279,7 @@ export default function Attendance() {
 
     try {
       const enrollments = await getEnrollmentsWithCache();
-      const courseEnrollments = enrollments.filter(e => e.courseId === course.id);
+      const courseEnrollments = enrollments.filter(e => e.courseId === course.id && e.status === 'enrolled');
 
       const enrolledStudentIds = new Set(courseEnrollments.map(e => e.studentId));
 
@@ -323,7 +319,6 @@ export default function Attendance() {
       setCalendarData(attendanceDates);
 
     } catch (error) {
-      console.error('Error loading course data:', error);
     } finally {
       setCourseDataLoading(false);
     }
@@ -342,17 +337,14 @@ export default function Attendance() {
       // Load attendance records for this date
       const records = await getAttendanceRecordsForCourseDate(selectedCourse.id!, dateString);
       setAttendanceRecords(records);
-      console.log('Loaded', records.length, 'attendance records for date', dateString);
 
       await buildStudentAttendanceMap();
 
       // Calculate stats for this date
       const stats = await getCourseDateAttendanceStats(selectedCourse.id!, dateString);
       setAttendanceStats(stats);
-      console.log('Calculated attendance stats for date', dateString, ':', stats);
 
     } catch (error) {
-      console.error('Error loading attendance data for date:', error);
     } finally {
       setAttendanceViewLoading(false);
     }
@@ -397,7 +389,6 @@ export default function Attendance() {
           }
         }));
       } else {
-        console.log('- Using cached attendance studentId:', attendanceStudentId);
       }
 
       // Optimistically update UI
@@ -452,7 +443,6 @@ export default function Attendance() {
       });
 
     } catch (error) {
-      console.error('Error marking attendance:', error);
 
       // Revert optimistic update on error
       setStudentAttendanceMap(prev => ({
@@ -557,7 +547,6 @@ export default function Attendance() {
       await buildStudentAttendanceMap();
 
     } catch (error) {
-      console.error('Error bulk marking attendance:', error);
       push({
         title: "Bulk Operation Failed",
         description: error instanceof Error ? error.message : 'Unknown error occurred',
@@ -583,7 +572,6 @@ export default function Attendance() {
         const attendanceDates = await getCourseAttendanceDates(selectedCourse.id);
         setCalendarData(attendanceDates);
       } catch (error) {
-        console.error('Error reloading calendar data:', error);
       }
     }
 
@@ -606,7 +594,6 @@ export default function Attendance() {
     setDiagnosticData(prev => ({ ...prev, isRunning: true }));
 
     try {
-      console.log('🔍 Running attendance diagnostics for course:', selectedCourse.id);
 
       const [attendanceData, enrollmentData] = await Promise.all([
         diagnoseAttendanceData(selectedCourse.id),
@@ -619,11 +606,6 @@ export default function Attendance() {
         isRunning: false
       });
 
-      console.log('📊 Diagnostic Results:');
-      console.log('Attendance Records:', attendanceData.totalRecords);
-      console.log('Unique Student IDs in Attendance:', attendanceData.uniqueStudentIds);
-      console.log('Enrollments:', enrollmentData.totalEnrollments);
-      console.log('Unique Student IDs in Enrollments:', enrollmentData.uniqueStudentIds);
 
       // Check for ID mismatches
       const attendanceIds = new Set(attendanceData.uniqueStudentIds);
@@ -632,9 +614,6 @@ export default function Attendance() {
       const extraInAttendance = attendanceData.uniqueStudentIds.filter(id => !enrollmentIds.has(id));
 
       if (missingInAttendance.length > 0 || extraInAttendance.length > 0) {
-        console.warn('⚠️ ID MISMATCH DETECTED!');
-        console.warn('Students enrolled but no attendance records:', missingInAttendance);
-        console.warn('Attendance records for unenrolled students:', extraInAttendance);
 
         push({
           title: "ID Mismatch Detected",
@@ -650,7 +629,6 @@ export default function Attendance() {
       }
 
     } catch (error) {
-      console.error('Error running diagnostics:', error);
       setDiagnosticData(prev => ({ ...prev, isRunning: false }));
       push({
         title: "Diagnostic Error",
@@ -674,14 +652,12 @@ export default function Attendance() {
     setFixData(prev => ({ ...prev, isRunning: true }));
 
     try {
-      console.log('🔧 Analyzing attendance issues for course:', selectedCourse.id);
 
       // Get all enrolled students
       const enrollments = await getEnrollmentsWithCache();
       const courseEnrollments = enrollments.filter(e => e.courseId === selectedCourse.id);
       const enrolledStudentIds = courseEnrollments.map(e => e.studentId);
 
-      console.log('Enrolled student IDs:', enrolledStudentIds);
 
       // Get all users to find their actual IDs
       const usersData = await getAllUsers();
@@ -710,13 +686,11 @@ export default function Attendance() {
             const correctId = correctIds[0];
             if (correctId) {
               idMapping[enrollmentStudentId] = correctId;
-              console.log(`Mapping ${enrollmentStudentId} -> ${correctId} (${user.name})`);
             }
           }
         }
       }
 
-      console.log('ID mapping to apply:', idMapping);
 
       if (Object.keys(idMapping).length === 0) {
         push({
@@ -737,11 +711,8 @@ export default function Attendance() {
         isRunning: false
       }));
 
-      console.log(`Found ${recordsToFix.length} records needing fixes`);
-      console.log('Incorrect IDs:', incorrectIds);
 
       // Automatically apply the fix
-      console.log('Applying automatic fix...');
       const results = await fixAttendanceStudentIds(selectedCourse.id, idMapping);
 
       setFixData(prev => ({ ...prev, results }));
@@ -764,7 +735,6 @@ export default function Attendance() {
       }
 
     } catch (error) {
-      console.error('Error analyzing/fixing attendance issues:', error);
       setFixData(prev => ({ ...prev, isRunning: false }));
       push({
         title: "Fix Error",
@@ -783,14 +753,10 @@ export default function Attendance() {
 
     const mapping: { [studentId: string]: AttendanceRecord | null } = {};
 
-    console.log('Building attendance mapping for', enrolledStudents.length, 'students');
-    console.log('Course enrollments:', courseEnrollments.map(e => ({ studentId: e.studentId })));
-    console.log('Attendance records:', attendanceRecords.map(r => ({ studentId: r.studentId, status: r.status })));
 
     for (const student of enrolledStudents) {
       if (!student.id) continue; // Skip students without IDs
 
-      console.log('Processing student:', { id: student.id, uid: student.uid, email: student.email, name: student.name });
 
       // Find the enrollment for this student to get the correct studentId used in attendance records
       const studentEnrollment = courseEnrollments.find(e =>
@@ -800,17 +766,13 @@ export default function Attendance() {
       );
 
       const correctStudentId = studentEnrollment?.studentId || student.id;
-      console.log('Enrollment found for student:', studentEnrollment);
-      console.log('Using correctStudentId:', correctStudentId);
 
       const record = attendanceRecords.find(r => r.studentId === correctStudentId);
-      console.log('Found attendance record:', record);
 
       mapping[student.id] = record || null;
     }
 
     setStudentAttendanceMap(mapping);
-    console.log('Final student attendance mapping:', mapping);
   };
 
   const handleViewStudentHistory = async (course: Course) => {
@@ -834,7 +796,6 @@ export default function Attendance() {
       setAttendancePercentage(percentage);
       setStudentCalendarData(calendarData);
     } catch (error) {
-      console.error('Error loading student attendance history:', error);
     } finally {
       setAttendanceViewLoading(false);
     }
@@ -852,7 +813,6 @@ export default function Attendance() {
       const usersData = await getAllUsers();
       setStudents(usersData.filter(u => u.role === 'student'));
     } catch (error) {
-      console.error('Error fixing user uids:', error);
       alert('Failed to fix user uids. Please check the console for details.');
     }
   };
@@ -1249,7 +1209,6 @@ export default function Attendance() {
                         variant: "success"
                       });
                     } catch (error) {
-                      console.error('Error refreshing attendance data:', error);
                       push({
                         title: "Refresh Failed",
                         description: "Could not update attendance data",
@@ -1797,7 +1756,6 @@ export default function Attendance() {
                           const assignments = await debugTeacherAssignments();
                           alert(`Found ${assignments.length} teacher assignments in database. Check console for details.`);
                         } catch (error) {
-                          console.error('Error fetching teacher assignments:', error);
                           alert('Error fetching teacher assignments');
                         }
                       }}
@@ -1818,7 +1776,6 @@ export default function Attendance() {
                           // Reload data
                           window.location.reload();
                         } catch (error) {
-                          console.error('Error creating sample assignments:', error);
                           alert('Error creating sample assignments');
                         }
                       }}
@@ -1834,7 +1791,6 @@ export default function Attendance() {
                           await debugDatabaseState();
                           alert('Database state checked. Check console for complete details.');
                         } catch (error) {
-                          console.error('Error checking database state:', error);
                           alert('Error checking database state');
                         }
                       }}
@@ -1850,7 +1806,6 @@ export default function Attendance() {
                           const enrollments = await debugEnrollments();
                           alert(`Found ${enrollments.length} enrollments in database. Check console for details.`);
                         } catch (error) {
-                          console.error('Error fetching enrollments:', error);
                           alert('Error fetching enrollments');
                         }
                       }}
@@ -1870,7 +1825,6 @@ export default function Attendance() {
                           alert('Sample enrollments created! Please refresh the page.');
                           window.location.reload();
                         } catch (error) {
-                          console.error('Error creating sample enrollments:', error);
                           alert('Error creating sample enrollments');
                         }
                       }}

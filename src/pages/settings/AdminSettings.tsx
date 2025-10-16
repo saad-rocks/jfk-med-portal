@@ -110,7 +110,6 @@ export function AdminSettings() {
             });
           }
         } catch (_error) {
-          console.error("Error loading user profile:", _error);
           push({
             title: "Error",
             description: "Failed to load profile information",
@@ -144,7 +143,6 @@ export function AdminSettings() {
         variant: "success",
       });
     } catch (_error) {
-      console.error("Error updating profile:", _error);
       push({
         title: "Error",
         description: "Failed to update profile",
@@ -197,7 +195,6 @@ export function AdminSettings() {
         variant: "success",
       });
     } catch (error: any) {
-      console.error("Error updating system setting:", error);
       push({
         title: "Error",
         description: error.message || "Failed to update system settings",
@@ -235,7 +232,6 @@ export function AdminSettings() {
         setBackupStatus("success");
       }
     } catch (error: any) {
-      console.error("Backup error:", error);
       push({
         title: "Backup Failed",
         description: error.message || "Failed to trigger backup",
@@ -257,7 +253,6 @@ export function AdminSettings() {
         setActiveSessions(data.sessions || []);
       }
     } catch (error: any) {
-      console.error("Error fetching sessions:", error);
       push({
         title: "Error",
         description: "Failed to fetch active sessions",
@@ -285,7 +280,6 @@ export function AdminSettings() {
         fetchActiveSessions();
       }
     } catch (error: any) {
-      console.error("Force logout error:", error);
       push({
         title: "Error",
         description: error.message || "Failed to logout user",
@@ -306,7 +300,6 @@ export function AdminSettings() {
         setAuditLogs(data.logs || []);
       }
     } catch (error: any) {
-      console.error("Error fetching audit logs:", error);
       push({
         title: "Error",
         description: "Failed to fetch audit logs",
@@ -591,6 +584,23 @@ export function AdminSettings() {
                       type="checkbox"
                       checked={systemSettings?.allowRegistration || false}
                       onChange={(e) => updateSystemSetting('allowRegistration', e.target.checked)}
+                      className="sr-only peer"
+                      disabled={saving}
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
+
+                <div className="flex items-center justify-between p-4 border rounded-lg">
+                  <div>
+                    <h4 className="font-medium text-gray-900">Allow Course Enrollments</h4>
+                    <p className="text-sm text-gray-600">Permit students and faculty to enroll learners into courses</p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={systemSettings?.allowEnrollment !== false}
+                      onChange={(e) => updateSystemSetting('allowEnrollment', e.target.checked)}
                       className="sr-only peer"
                       disabled={saving}
                     />

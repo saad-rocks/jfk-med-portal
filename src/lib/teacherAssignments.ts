@@ -39,58 +39,27 @@ const TEACHER_ASSIGNMENTS_COLLECTION = 'teacherAssignments';
 async function isCurrentUserTeacher(): Promise<boolean> {
   const user = auth.currentUser;
   if (!user) {
-    console.log('❌ No current user found');
     return false;
   }
 
   try {
-    console.log('🔍 Checking if user is teacher:', user.email);
-    console.log('🔍 User UID:', user.uid);
 
     const allUsers = await getAllUsers();
-    console.log('📊 Total users in database:', allUsers.length);
-    console.log('👥 All users:', allUsers.map(u => ({
-      id: u.id,
-      uid: u.uid,
-      email: u.email,
-      role: u.role,
-      status: u.status
-    })));
 
     // Try to find by email first
     const currentUserByEmail = allUsers.find(u => u.email?.toLowerCase() === user.email?.toLowerCase());
-    console.log('📧 User found by email:', currentUserByEmail ? {
-      id: currentUserByEmail.id,
-      uid: currentUserByEmail.uid,
-      email: currentUserByEmail.email,
-      role: currentUserByEmail.role
-    } : 'Not found');
 
     // Try to find by UID
     const currentUserByUid = allUsers.find(u => u.uid === user.uid);
-    console.log('🆔 User found by UID:', currentUserByUid ? {
-      id: currentUserByUid.id,
-      uid: currentUserByUid.uid,
-      email: currentUserByUid.email,
-      role: currentUserByUid.role
-    } : 'Not found');
 
     // Use UID match if email match fails
     const currentUser = currentUserByEmail || currentUserByUid;
 
-    console.log('🎯 Final user found:', currentUser ? {
-      id: currentUser.id,
-      uid: currentUser.uid,
-      email: currentUser.email,
-      role: currentUser.role
-    } : 'Not found');
 
     const isTeacher = currentUser?.role === 'teacher';
-    console.log('✅ Is teacher?', isTeacher);
 
     return isTeacher;
   } catch (error) {
-    console.error('❌ Error checking if user is teacher:', error);
     return false;
   }
 }
@@ -127,7 +96,6 @@ export async function createTeacherAssignment(input: CreateTeacherAssignmentInpu
   
   // Update course instructor
   const courseRef = doc(db, "courses", input.courseId);
-  console.log('🔧 Updating course instructor:', input.courseId, 'to:', input.teacherEmail);
   batch.update(courseRef, {
     instructor: input.teacherEmail
   });
@@ -139,7 +107,6 @@ export async function createTeacherAssignment(input: CreateTeacherAssignmentInpu
 // Get all assignments for a specific teacher
 export async function getTeacherAssignments(teacherId: string): Promise<Array<TeacherAssignment & { id: string }>> {
   try {
-    console.log(`🔍 Fetching teacher assignments for teacherId: ${teacherId}`);
     
     // First try with orderBy (requires index)
     try {
@@ -157,10 +124,8 @@ export async function getTeacherAssignments(teacherId: string): Promise<Array<Te
         assignments.push({ id: doc.id, ...doc.data() as TeacherAssignment });
       });
       
-      console.log(`✅ Found ${assignments.length} teacher assignments with orderBy`);
       return assignments;
     } catch (orderByError) {
-      console.log(`⚠️ OrderBy query failed, trying without orderBy:`, orderByError);
       
       // Fallback: query without orderBy
       const q = query(
@@ -183,11 +148,9 @@ export async function getTeacherAssignments(teacherId: string): Promise<Array<Te
         return bTime - aTime;
       });
       
-      console.log(`✅ Found ${assignments.length} teacher assignments without orderBy`);
       return assignments;
     }
   } catch (error) {
-    console.error(`❌ Error fetching teacher assignments for ${teacherId}:`, error);
     return [];
   }
 }
@@ -243,7 +206,6 @@ export async function removeTeacherAssignment(assignmentId: string): Promise<voi
   
   // Clear the course instructor
   const courseRef = doc(db, "courses", assignmentData.courseId);
-  console.log('🔧 Clearing course instructor:', assignmentData.courseId, 'setting to: TBD');
   batch.update(courseRef, {
     instructor: "TBD" // or empty string, depending on your preference
   });
@@ -300,17 +262,13 @@ export async function isCourseAvailableForAssignment(courseId: string): Promise<
 // Debug function to check all teacher assignments
 export async function debugTeacherAssignments(): Promise<Array<TeacherAssignment & { id: string }>> {
   try {
-    console.log("🔍 Debugging teacher assignments...");
     const allAssignments = await getAllTeacherAssignments();
-    console.log("📊 Total teacher assignments in DB:", allAssignments.length);
 
     allAssignments.forEach((assignment, index) => {
-      console.log(`  ${index + 1}. Teacher: ${assignment.teacherEmail}, Course: ${assignment.courseCode}, Status: ${assignment.status}, TeacherID: ${assignment.teacherId}`);
     });
 
     return allAssignments;
   } catch (error) {
-    console.error("❌ Error debugging teacher assignments:", error);
     return [];
   }
 }
@@ -318,58 +276,36 @@ export async function debugTeacherAssignments(): Promise<Array<TeacherAssignment
 // Debug function to check user database state
 export async function debugUserDatabase(): Promise<void> {
   try {
-    console.log("🔍 Debugging user database...");
     const allUsers = await getAllUsers();
-    console.log("📊 Total users in database:", allUsers.length);
 
     const teachers = allUsers.filter(u => u.role === 'teacher');
     const students = allUsers.filter(u => u.role === 'student');
     const admins = allUsers.filter(u => u.role === 'admin');
 
-    console.log("👨‍🏫 Teachers:", teachers.length);
     teachers.forEach((teacher, index) => {
-      console.log(`  ${index + 1}. ID: ${teacher.id}, UID: ${teacher.uid}, Email: ${teacher.email}, Status: ${teacher.status}`);
     });
 
-    console.log("👨‍🎓 Students:", students.length);
     students.forEach((student, index) => {
-      console.log(`  ${index + 1}. ID: ${student.id}, UID: ${student.uid}, Email: ${student.email}, MD Year: ${student.mdYear}, Status: ${student.status}`);
     });
 
-    console.log("👑 Admins:", admins.length);
     admins.forEach((admin, index) => {
-      console.log(`  ${index + 1}. ID: ${admin.id}, UID: ${admin.uid}, Email: ${admin.email}, Status: ${admin.status}`);
     });
 
     // Check current Firebase Auth user
     const currentUser = auth.currentUser;
-    console.log("🔐 Current Firebase Auth User:", currentUser ? {
-      uid: currentUser.uid,
-      email: currentUser.email,
-      displayName: currentUser.displayName
-    } : 'Not authenticated');
 
     // Try to match current user with database user
     if (currentUser) {
       const dbUser = allUsers.find(u => u.uid === currentUser.uid || u.email?.toLowerCase() === currentUser.email?.toLowerCase());
-      console.log("🔗 Database match for current user:", dbUser ? {
-        id: dbUser.id,
-        uid: dbUser.uid,
-        email: dbUser.email,
-        role: dbUser.role,
-        status: dbUser.status
-      } : 'No match found');
     }
 
   } catch (error) {
-    console.error("❌ Error debugging user database:", error);
   }
 }
 
 // Helper function to check if a specific teacher has any assignments
 export async function checkTeacherAssignments(teacherId: string): Promise<Array<TeacherAssignment & { id: string }>> {
   try {
-    console.log(`🔍 Checking assignments for teacher ID: ${teacherId}`);
     
     // Query directly without orderBy to avoid index issues
     const q = query(
@@ -385,10 +321,8 @@ export async function checkTeacherAssignments(teacherId: string): Promise<Array<
       assignments.push({ id: doc.id, ...doc.data() as TeacherAssignment });
     });
     
-    console.log(`✅ Found ${assignments.length} assignments for teacher ${teacherId}:`, assignments);
     return assignments;
   } catch (error) {
-    console.error(`❌ Error checking teacher assignments for ${teacherId}:`, error);
     return [];
   }
 }
@@ -400,7 +334,6 @@ export async function assignTeacherToCourse(
   courseId: string
 ): Promise<string> {
   try {
-    console.log(`👨‍🏫 Assigning teacher ${teacherEmail} to course ${courseId}...`);
 
     // Get course details
     const { getDoc, doc, addDoc, writeBatch, Timestamp } = await import("firebase/firestore");
@@ -439,17 +372,14 @@ export async function assignTeacherToCourse(
     
     // Update course instructor
     const courseRef = doc(db, "courses", courseId);
-    console.log('🔧 Updating course instructor:', courseId, 'to:', teacherEmail);
     batch.update(courseRef, {
       instructor: teacherEmail
     });
     
     await batch.commit();
     
-    console.log(`✅ Teacher assigned successfully with ID: ${assignmentRef.id}`);
     return assignmentRef.id;
   } catch (error) {
-    console.error("❌ Error assigning teacher to course:", error);
     throw error;
   }
 }
@@ -457,7 +387,6 @@ export async function assignTeacherToCourse(
 // Admin function to remove teacher assignment from a course
 export async function adminRemoveTeacherAssignment(courseId: string): Promise<void> {
   try {
-    console.log(`👨‍🏫 Admin removing teacher assignment from course ${courseId}...`);
 
     const { doc, writeBatch, getDocs, query, where } = await import("firebase/firestore");
     
@@ -478,16 +407,13 @@ export async function adminRemoveTeacherAssignment(courseId: string): Promise<vo
     
     // Update course instructor to empty
     const courseRef = doc(db, "courses", courseId);
-    console.log('🔧 Removing instructor from course:', courseId);
     batch.update(courseRef, {
       instructor: ""
     });
     
     await batch.commit();
     
-    console.log(`✅ Teacher assignment removed successfully from course ${courseId}`);
   } catch (error) {
-    console.error("❌ Error removing teacher assignment:", error);
     throw error;
   }
 }
@@ -495,7 +421,6 @@ export async function adminRemoveTeacherAssignment(courseId: string): Promise<vo
 // Create sample teacher assignments for testing
 export async function createSampleTeacherAssignments(): Promise<void> {
   try {
-    console.log('🎯 Creating sample teacher assignments...');
 
     // Get all users and courses
     const users = await getAllUsers();
@@ -503,12 +428,10 @@ export async function createSampleTeacherAssignments(): Promise<void> {
     const courses = await getDocs(collection(db, 'courses'));
 
     if (teachers.length === 0) {
-      console.log('❌ No teachers found in database');
       return;
     }
 
     if (courses.empty) {
-      console.log('❌ No courses found in database');
       return;
     }
 
@@ -531,16 +454,12 @@ export async function createSampleTeacherAssignments(): Promise<void> {
           };
 
           await createTeacherAssignment(assignmentInput);
-          console.log(`✅ Created assignment: ${teacher.email} -> ${(course as any).title}`);
         } catch (error) {
-          console.log(`⚠️ Assignment already exists or error: ${teacher.email} -> ${(course as any).title}`);
         }
       }
     }
 
-    console.log('🎉 Sample teacher assignments created successfully!');
   } catch (error) {
-    console.error('Error creating sample teacher assignments:', error);
     throw error;
   }
 }

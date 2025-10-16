@@ -12,7 +12,11 @@
       "Bash(firebase deploy:*)",
       "Bash(firebase functions:list:*)",
       "Bash(cat:*)",
-      "Bash(firebase functions:log:*)"
+      "Bash(firebase functions:log:*)",
+      "Bash(node:*)",
+      "Bash(firebase firestore:indexes:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "ask": []

@@ -11,7 +11,6 @@ const vfs =
   fontsModule;
 
 if (!vfs || typeof vfs !== 'object') {
-  console.warn('[pdfmake] Failed to load virtual fonts; PDF downloads may not work.');
 } else {
   pdfMakeInstance.vfs = vfs;
   if (!pdfMakeInstance.fonts) {

@@ -178,7 +178,6 @@ export default function ClinicalAssessments() {
       const assessmentsData = assessmentsSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as ClinicalAssessment));
       setAssessments(assessmentsData);
     } catch (error) {
-      console.error('Error fetching clinical data:', error);
     } finally {
       setLoading(false);
     }
@@ -244,7 +243,6 @@ export default function ClinicalAssessments() {
       
       fetchClinicalData();
     } catch (error) {
-      console.error('Error creating assessment:', error);
     }
   };
 

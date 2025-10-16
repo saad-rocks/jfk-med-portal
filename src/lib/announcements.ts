@@ -230,7 +230,6 @@ export function listenToAnnouncements(
       if (onError) {
         onError(error);
       } else {
-        console.error("Error listening to announcements:", error);
       }
     },
   );

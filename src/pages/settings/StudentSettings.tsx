@@ -91,7 +91,6 @@ export function StudentSettings() {
             });
           }
         } catch (_error) {
-          console.error("Error loading user profile:", _error);
           push({
             title: "Error",
             description: "Failed to load profile information",
@@ -133,7 +132,6 @@ export function StudentSettings() {
         variant: "success",
       });
     } catch (_error) {
-      console.error("Error updating profile:", _error);
       push({
         title: "Error",
         description: "Failed to update profile",

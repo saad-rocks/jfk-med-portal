@@ -75,7 +75,6 @@ export default function AssignmentsTeacher() {
       const assignmentsData = await listAssignments(courseId);
       setAssignments(assignmentsData);
     } catch (error) {
-      console.error("Error fetching assignments:", error);
     } finally {
       setLoading(false);
     }
@@ -175,17 +174,14 @@ export default function AssignmentsTeacher() {
 
   const handleBulkDownload = () => {
     // Implement bulk download functionality
-    console.log('Bulk download for:', Array.from(selectedAssignments));
   };
 
   const handleBulkExport = () => {
     // Implement CSV export functionality
-    console.log('CSV export for:', Array.from(selectedAssignments));
   };
 
   const handleQuickGrade = () => {
     // Implement quick grading functionality
-    console.log('Quick grade for:', Array.from(selectedAssignments));
   };
 
 

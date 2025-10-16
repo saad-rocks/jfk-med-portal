@@ -12,7 +12,6 @@ async function resolveUserIdentity(userKey: string): Promise<{ profileId?: strin
     if (!match) return null;
     return { profileId: match.id, uid: match.uid, email: match.email };
   } catch (e) {
-    console.error('resolveUserIdentity failed:', e);
     return null;
   }
 }
@@ -126,7 +125,6 @@ export async function getAssignmentsDueForUser(userId: string): Promise<Array<As
         const courseAssignments = await listAssignments(courseId);
         allAssignments.push(...courseAssignments);
       } catch (error) {
-        console.error(`Error fetching assignments for course ${courseId}:`, error);
       }
     }
 
@@ -139,7 +137,6 @@ export async function getAssignmentsDueForUser(userId: string): Promise<Array<As
 
     return dueAssignments;
   } catch (error) {
-    console.error('Error getting assignments due for user:', error);
     return [];
   }
 }
@@ -167,7 +164,6 @@ export async function getOverdueAssignmentsForUser(userId: string): Promise<Arra
         const courseAssignments = await listAssignments(courseId);
         allAssignments.push(...courseAssignments);
       } catch (error) {
-        console.error(`Error fetching assignments for course ${courseId}:`, error);
       }
     }
 
@@ -190,7 +186,6 @@ export async function getOverdueAssignmentsForUser(userId: string): Promise<Arra
           overdueAssignments.push(assignment);
         }
       } catch (error) {
-        console.error(`Error checking submission for assignment ${assignment.id}:`, error);
         // If we can't check submission status, include it to be safe
         overdueAssignments.push(assignment);
       }
@@ -201,7 +196,6 @@ export async function getOverdueAssignmentsForUser(userId: string): Promise<Arra
 
     return overdueAssignments;
   } catch (error) {
-    console.error('Error getting overdue assignments for user:', error);
     return [];
   }
 }
@@ -229,7 +223,6 @@ export async function calculateOverallGradeForUser(userId: string): Promise<numb
         const courseAssignments = await listAssignments(courseId);
         allAssignments.push(...courseAssignments);
       } catch (error) {
-        console.error(`Error fetching assignments for course ${courseId}:`, error);
       }
     }
 
@@ -259,7 +252,6 @@ export async function calculateOverallGradeForUser(userId: string): Promise<numb
           totalWeight += w;
         }
       } catch (error) {
-        console.error(`Error fetching submissions for assignment ${assignment.id}:`, error);
       }
     }
 
@@ -269,7 +261,6 @@ export async function calculateOverallGradeForUser(userId: string): Promise<numb
 
     return Math.round((totalWeightedGrade / totalWeight) * 100) / 100;
   } catch (error) {
-    console.error('Error calculating overall grade for user:', error);
     return 0;
   }
 }
@@ -305,7 +296,6 @@ export async function calculateAttendanceForUser(userId: string): Promise<number
           relevantSessions.push({ id: doc.id, courseId: doc.data().courseId });
         });
       } catch (error) {
-        console.error(`Error fetching class sessions for course ${courseId}:`, error);
       }
     }
 
@@ -336,7 +326,6 @@ export async function calculateAttendanceForUser(userId: string): Promise<number
           }
         }
       } catch (error) {
-        console.error(`Error fetching attendance for session ${session.id}:`, error);
       }
     }
 
@@ -346,7 +335,6 @@ export async function calculateAttendanceForUser(userId: string): Promise<number
 
     return Math.round((attendedSessions / totalSessions) * 100);
   } catch (error) {
-    console.error('Error calculating attendance for user:', error);
     return 0;
   }
 }

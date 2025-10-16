@@ -54,7 +54,6 @@ export function TimeCard({ userId, role }: TimeCardProps) {
       setStats(statsData);
       setIndexBuilding(false);
     } catch (error) {
-      console.error('Error loading time tracking stats:', error);
       if (error instanceof Error && error.message.includes('index is currently building')) {
         setIndexBuilding(true);
         push({
@@ -101,7 +100,6 @@ export function TimeCard({ userId, role }: TimeCardProps) {
         variant: 'success'
       });
     } catch (error) {
-      console.error('Error starting time session:', error);
       if (error instanceof Error && error.message.includes('index is currently building')) {
         push({
           title: 'System Update in Progress',
@@ -134,7 +132,6 @@ export function TimeCard({ userId, role }: TimeCardProps) {
         variant: 'success'
       });
     } catch (error) {
-      console.error('Error stopping time session:', error);
       if (error instanceof Error && error.message.includes('index is currently building')) {
         push({
           title: 'System Update in Progress',

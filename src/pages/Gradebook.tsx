@@ -73,10 +73,8 @@ interface GradebookStats {
 }
 
 export default function Gradebook() {
-  console.log('🎯 Gradebook component rendered');
   const { courseId } = useParams<{ courseId: string }>();
   const { role, loading: roleLoading } = useRole();
-  console.log('🎭 Current role:', role, 'Role loading:', roleLoading);
   const [students, setStudents] = useState<GradebookStudent[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [course, setCourse] = useState<Course | null>(null);
@@ -87,19 +85,16 @@ export default function Gradebook() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   useEffect(() => {
-    console.log('🔄 useEffect triggered with courseId:', courseId);
     if (courseId) {
       fetchGradebookData();
       
       // Add a timeout to prevent infinite loading
       const timeoutId = setTimeout(() => {
-        console.log('⏰ Timeout reached, setting loading to false');
         setLoading(false);
       }, 10000); // 10 seconds timeout
       
       return () => clearTimeout(timeoutId);
     } else {
-      console.log('⚠️ No courseId provided, setting loading to false');
       setLoading(false);
     }
   }, [courseId]);
@@ -107,7 +102,6 @@ export default function Gradebook() {
   const fetchGradebookData = async () => {
     try {
       setLoading(true);
-      console.log('🔍 Fetching gradebook data for courseId:', courseId);
       
       // Fetch course details
       if (courseId) {
@@ -116,63 +110,39 @@ export default function Gradebook() {
           if (courseDoc.exists()) {
             const courseData = { ...courseDoc.data(), id: courseDoc.id } as Course;
             setCourse(courseData);
-            console.log('✅ Course found:', courseData);
-            console.log('🔍 Course details:', {
-              id: courseData.id,
-              code: courseData.code,
-              title: courseData.title,
-              courseId: courseId
-            });
           } else {
-            console.log('❌ Course not found for ID:', courseId);
           }
         } catch (error) {
-          console.error('❌ Error fetching course:', error);
         }
       }
 
       // Fetch assignments
-      console.log('📚 Fetching assignments...');
       let assignmentsData: Assignment[] = [];
       try {
         const assignmentsQuery = query(collection(db, 'assignments'), where('courseId', '==', courseId));
         const assignmentsSnapshot = await getDocs(assignmentsQuery);
         assignmentsData = assignmentsSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Assignment));
         setAssignments(assignmentsData);
-        console.log('✅ Found', assignmentsData.length, 'assignments');
         if (assignmentsData.length > 0) {
-          console.log('📋 Assignment details:', assignmentsData.map(a => ({
-            id: a.id,
-            title: a.title,
-            courseId: a.courseId,
-            type: a.type
-          })));
         }
       } catch (error) {
-        console.error('❌ Error fetching assignments:', error);
         setAssignments([]);
       }
 
       // Fetch enrollments and students
-      console.log('👥 Fetching enrollments...');
       let studentIds: string[] = [];
       try {
         const enrollmentsQuery = query(collection(db, 'enrollments'), where('courseId', '==', courseId));
         const enrollmentsSnapshot = await getDocs(enrollmentsQuery);
         
         studentIds = enrollmentsSnapshot.docs.map(doc => doc.data().studentId);
-        console.log('✅ Found', studentIds.length, 'student enrollments');
-        console.log('📋 Student IDs from enrollments:', studentIds);
       } catch (error) {
-        console.error('❌ Error fetching enrollments:', error);
         setStudents([]);
         return;
       }
       
       // Fetch student details
-      console.log('👤 Fetching student details...');
       if (studentIds.length === 0) {
-        console.log('⚠️ No student IDs found, setting empty students array');
         setStudents([]);
         return;
       }
@@ -180,93 +150,51 @@ export default function Gradebook() {
       let studentsSnapshot;
       try {
         // Since studentIds contains the uid values (like 'student-001'), we can query by uid
-        console.log('🔍 Querying users with uids:', studentIds);
         const studentsQuery = query(collection(db, 'users'), where('uid', 'in', studentIds));
         studentsSnapshot = await getDocs(studentsQuery);
-        console.log('✅ Found', studentsSnapshot.docs.length, 'students');
         if (studentsSnapshot.docs.length > 0) {
-          console.log('📋 Students found:', studentsSnapshot.docs.map(doc => ({
-            id: doc.id,
-            uid: doc.data().uid,
-            name: doc.data().name,
-            role: doc.data().role
-          })));
         }
       } catch (error) {
-        console.error('❌ Error fetching students:', error);
         setStudents([]);
         return;
       }
       
       // Fetch submissions for all students
-      console.log('📝 Fetching submissions...');
       let submissions: Submission[] = [];
       try {
-        console.log('🔍 Querying submissions for courseId:', courseId);
         const submissionsQuery = query(collection(db, 'submissions'), where('courseId', '==', courseId));
         const submissionsSnapshot = await getDocs(submissionsQuery);
         submissions = submissionsSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Submission));
-        console.log('✅ Found', submissions.length, 'submissions');
         if (submissions.length > 0) {
-          console.log('📋 Submission details:', submissions.map(s => ({
-            id: s.id,
-            assignmentId: s.assignmentId,
-            courseId: s.courseId,
-            studentId: s.studentId,
-            grade: s.grade?.points || 'no grade'
-          })));
         } else {
-          console.log('⚠️ No submissions found for courseId:', courseId);
           // Let's check what submissions exist in the database
           const allSubmissionsQuery = query(collection(db, 'submissions'));
           const allSubmissionsSnapshot = await getDocs(allSubmissionsQuery);
           const allSubmissions = allSubmissionsSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Submission));
-          console.log('🔍 All submissions in database:', allSubmissions.map(s => ({
-            courseId: s.courseId,
-            studentId: s.studentId,
-            assignmentId: s.assignmentId
-          })));
         }
       } catch (error) {
-        console.error('❌ Error fetching submissions:', error);
         submissions = [];
       }
 
       // Build gradebook data
-      console.log('🏗️ Building gradebook data...');
       const gradebookStudents: GradebookStudent[] = studentsSnapshot.docs.map(studentDoc => {
         const studentData = studentDoc.data() as User;
         
         // Ensure student has required fields
         if (!studentData.uid || !studentData.name || !studentData.email) {
-          console.warn('⚠️ Student missing required fields:', studentData);
           return null;
         }
         
         // Use the student's uid field to match with submissions (since both use the same values like 'student-001')
-        console.log(`🔍 Looking for submissions for student ${studentData.uid} (${studentData.name})`);
-        console.log(`📋 All submissions available:`, submissions.map(s => ({
-          studentId: s.studentId,
-          assignmentId: s.assignmentId,
-          grade: s.grade?.points || 'no grade'
-        })));
         const studentSubmissions = submissions.filter(sub => sub.studentId === studentData.uid);
-        console.log(`📝 Found ${studentSubmissions.length} submissions for student ${studentData.uid}`);
         if (studentSubmissions.length > 0) {
-          console.log(`📋 Submissions:`, studentSubmissions.map(s => ({ 
-            assignmentId: s.assignmentId, 
-            grade: s.grade?.points, 
-            status: s.grade?.points ? 'graded' : 'submitted' 
-          })));
         }
         
         const assignmentGrades: AssignmentGrade[] = assignmentsData.map(assignment => {
           const submission = studentSubmissions.find(sub => sub.assignmentId === assignment.id);
-          console.log(`🔍 Assignment ${assignment.title}: submission found = ${!!submission}, grade = ${submission?.grade?.points || 'no grade'}`);
           
           // Ensure assignment has required fields
           if (!assignment.id || !assignment.title || !assignment.type || !assignment.maxPoints || !assignment.weight) {
-            console.warn('⚠️ Assignment missing required fields:', assignment);
             return null;
           }
           
@@ -345,25 +273,13 @@ export default function Gradebook() {
           professionalism
         };
         
-        console.log(`✅ Built gradebook data for ${gradebookStudentData.name}:`, {
-          assignments: assignmentGrades.length,
-          graded: assignmentGrades.filter(a => a.status === 'graded').length,
-          overallGrade: gradebookStudentData.overallGrade,
-          overallPercentage: gradebookStudentData.overallPercentage,
-          totalPoints: gradebookStudentData.totalPoints,
-          maxPoints: gradebookStudentData.maxPoints
-        });
         
         return gradebookStudentData;
       }).filter(Boolean) as GradebookStudent[];
 
       setStudents(gradebookStudents);
-      console.log('✅ Gradebook data built successfully');
-      console.log('📊 Final student count:', gradebookStudents.length);
     } catch (error) {
-      console.error('❌ Error fetching gradebook data:', error);
     } finally {
-      console.log('🏁 Setting loading to false');
       setLoading(false);
     }
   };

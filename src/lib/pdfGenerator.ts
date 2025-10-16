@@ -85,7 +85,6 @@ function preloadLogo(): Promise<string | null> {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         if (!ctx) {
-          console.warn('Canvas context not available');
           resolve(null);
           return;
         }
@@ -96,16 +95,13 @@ function preloadLogo(): Promise<string | null> {
 
         const imgData = canvas.toDataURL('image/png');
         logoImageCache = imgData;
-        console.log('Logo preloaded and cached successfully');
         resolve(imgData);
       } catch (error) {
-        console.warn('Failed to cache logo image:', error);
         resolve(null);
       }
     };
 
     img.onerror = () => {
-      console.warn('Failed to load logo image for caching');
       resolve(null);
     };
 
@@ -120,13 +116,11 @@ function preloadLogo(): Promise<string | null> {
     let pathIndex = 0;
     const tryNextPath = () => {
       if (pathIndex >= paths.length) {
-        console.warn('All logo paths failed');
         resolve(null);
         return;
       }
 
       img.src = paths[pathIndex];
-      console.log('Trying logo path:', paths[pathIndex]);
       pathIndex++;
     };
 
@@ -189,11 +183,9 @@ function addUniversityLetterhead(doc: jsPDF, title: string, subtitle?: string): 
   try {
     // First, ensure we have a preloaded logo
     if (!logoLoadAttempted) {
-      console.log('Preloading logo for first time...');
       preloadLogo().then((cachedImage) => {
         if (cachedImage) {
           logoImageCache = cachedImage;
-          console.log('Logo preloaded successfully');
         }
       });
     }
@@ -202,14 +194,11 @@ function addUniversityLetterhead(doc: jsPDF, title: string, subtitle?: string): 
     if (logoImageCache) {
       try {
         doc.addImage(logoImageCache, 'PNG', logo.x, logo.y, logo.width, logo.height);
-        console.log('Using cached logo in PDF');
       } catch (error) {
-        console.warn('Failed to add cached logo to PDF:', error);
         createProfessionalLogo(doc, logo, colors);
       }
     } else {
       // Fallback: Try direct loading
-      console.log('No cached logo, attempting direct load...');
 
       // Try multiple paths
       const paths = [
@@ -221,7 +210,6 @@ function addUniversityLetterhead(doc: jsPDF, title: string, subtitle?: string): 
       let success = false;
       for (const path of paths) {
         try {
-          console.log('Trying direct load from:', path);
 
           // Create a simple synchronous approach
           const img = new Image();
@@ -244,11 +232,9 @@ function addUniversityLetterhead(doc: jsPDF, title: string, subtitle?: string): 
                   ctx.drawImage(img, 0, 0);
                   const imgData = canvas.toDataURL('image/png');
                   doc.addImage(imgData, 'PNG', logo.x, logo.y, logo.width, logo.height);
-                  console.log('Direct logo load successful from:', path);
                   success = true;
                 }
               } catch (error) {
-                console.warn('Failed to process direct loaded image:', error);
               }
             } else if (attempts < maxAttempts) {
               setTimeout(checkImage, 20);
@@ -261,19 +247,16 @@ function addUniversityLetterhead(doc: jsPDF, title: string, subtitle?: string): 
           if (success) break;
 
         } catch (error) {
-          console.warn('Failed to load from path:', path, error);
         }
       }
 
       // If all direct loading failed, use text logo
       if (!success) {
-        console.log('All logo loading methods failed, using text logo');
         createProfessionalLogo(doc, logo, colors);
       }
     }
 
   } catch (error) {
-    console.warn('Logo loading failed completely, using text logo:', error);
     createProfessionalLogo(doc, logo, colors);
   }
 
@@ -370,9 +353,7 @@ function addUniversityFooter(doc: jsPDF, pageNumber: number = 1, totalPages: num
       try {
         // Scale down the cached logo for footer
         doc.addImage(logoImageCache, 'PNG', 15, pageHeight - 25, 12, 12);
-        console.log('Using cached logo in footer');
       } catch (error) {
-        console.warn('Failed to add cached logo to footer:', error);
         createFooterTextLogo(doc, colors, pageHeight);
       }
     } else {
@@ -405,11 +386,9 @@ function addUniversityFooter(doc: jsPDF, pageNumber: number = 1, totalPages: num
                   ctx.drawImage(img, 0, 0);
                   const imgData = canvas.toDataURL('image/png');
                   doc.addImage(imgData, 'PNG', 15, pageHeight - 25, 12, 12);
-                  console.log('Footer logo loaded from:', path);
                   success = true;
                 }
               } catch (error) {
-                console.warn('Failed to process footer image:', error);
               }
             } else if (attempts < maxAttempts) {
               setTimeout(checkImage, 20);
@@ -421,17 +400,14 @@ function addUniversityFooter(doc: jsPDF, pageNumber: number = 1, totalPages: num
           if (success) break;
 
         } catch (error) {
-          console.warn('Failed footer logo path:', path, error);
         }
       }
 
       if (!success) {
-        console.log('Footer logo loading failed, using text logo');
         createFooterTextLogo(doc, colors, pageHeight);
       }
     }
   } catch (error) {
-    console.warn('Footer logo loading failed completely:', error);
     createFooterTextLogo(doc, colors, pageHeight);
   }
 
@@ -1175,27 +1151,19 @@ export function generateLogoTestDocument(): void {
 
   // Save the test document
   doc.save('jfk-university-test-document.pdf');
-  console.log('Updated university test document generated!');
-  console.log('Check the PDF for correct JFK University information and logo.');
-  console.log('Logo file location: /jfk-logo.png (copied from Assests/jfk logo-1.png)');
 }
 
 // Initialize logo cache on app startup
 function initializeLogoCache(): Promise<void> {
-  console.log('🚀 Initializing JFK University logo cache...');
   return new Promise((resolve) => {
     if (logoLoadAttempted) {
-      console.log('Logo cache already initialized');
       resolve();
       return;
     }
 
     preloadLogo().then((result) => {
       if (result) {
-        console.log('✅ Logo cache initialized successfully');
-        console.log('📐 Logo cached and ready for PDF generation');
       } else {
-        console.warn('⚠️ Logo cache initialization failed - will use text fallback');
       }
       resolve();
     });
@@ -1204,65 +1172,43 @@ function initializeLogoCache(): Promise<void> {
 
 // Quick logo test function that can be called from browser console
 function testLogoInBrowser(): void {
-  console.log('🖼️ Testing JFK University Logo Loading...');
-  console.log('Logo path: /jfk-logo.png');
-  console.log('Logo copied from: Assests/jfk logo-1.png');
 
   // Try to load the logo image
   const img = new Image();
   img.crossOrigin = 'anonymous';
 
   img.onload = () => {
-    console.log('✅ Logo loaded successfully!');
-    console.log(`📐 Logo dimensions: ${img.width}x${img.height} pixels`);
-    console.log('📄 Generating test PDF with your logo...');
     generateLogoTestDocument();
   };
 
   img.onerror = () => {
-    console.log('❌ Logo failed to load from /jfk-logo.png');
-    console.log('🔄 Falling back to text-based logo');
-    console.log('📄 Generating test PDF with fallback logo...');
     generateLogoTestDocument();
   };
 
   img.src = window.location.origin + '/jfk-logo.png';
-  console.log('🔄 Attempting to load logo from:', img.src);
 }
 
 // Debug function to check logo cache status
 function debugLogoStatus(): void {
-  console.log('🔍 Logo Debug Information:');
-  console.log('Logo file path:', '/jfk-logo.png');
-  console.log('Logo load attempted:', logoLoadAttempted);
-  console.log('Logo cached:', logoImageCache ? 'YES' : 'NO');
-  console.log('Cache size:', logoImageCache ? `${(logoImageCache.length / 1024).toFixed(2)} KB` : 'N/A');
 
   if (logoImageCache) {
-    console.log('✅ Logo is ready for PDF generation');
   } else {
-    console.log('⚠️ Logo not cached - PDFs will use text fallback');
   }
 
   // Test current logo URL accessibility
   fetch('/jfk-logo.png')
     .then(response => {
       if (response.ok) {
-        console.log('✅ Logo file is accessible via HTTP');
       } else {
-        console.log('❌ Logo file not accessible via HTTP');
       }
     })
     .catch(error => {
-      console.log('❌ Logo file HTTP access failed:', error);
     });
 }
 
 // Auto-initialize logo cache when module is loaded
 if (typeof window !== 'undefined') {
-  console.log('🔄 Auto-initializing logo cache on module load...');
   initializeLogoCache().then(() => {
-    console.log('🎯 Logo cache auto-initialization complete');
   });
 }
 

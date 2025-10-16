@@ -29,7 +29,6 @@ export const functions = getFunctions(app);
 const useEmulators = import.meta.env.VITE_USE_FIREBASE_EMULATORS === 'true';
 
 if (useEmulators && import.meta.env.DEV) {
-  console.log('🔥 Using Firebase emulators in development mode');
 
   // Connect to emulators
   import('firebase/auth').then(({ connectAuthEmulator }) => {
@@ -54,9 +53,7 @@ if (useEmulators && import.meta.env.DEV) {
     import('firebase/firestore').then(({ enableIndexedDbPersistence }) => {
       enableIndexedDbPersistence(db).catch((err) => {
         if (err.code === 'failed-precondition') {
-          console.warn('Multiple tabs open, persistence can only be enabled in one tab at a time.');
         } else if (err.code === 'unimplemented') {
-          console.warn('The current browser does not support persistence.');
         }
       });
     });

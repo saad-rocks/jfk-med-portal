@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Plus, Clock } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
@@ -9,6 +9,14 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { useToast } from '../hooks/useToast';
 import { useRole } from '../hooks/useRole';
 import { createManualTimeEntry, formatDate } from '../lib/timeTracking';
+
+type ManualEntryTemplate = {
+  clockInTime: string;
+  clockOutTime: string;
+  notes?: string;
+};
+
+const MANUAL_ENTRY_TEMPLATE_KEY = 'time-tracking:manual-entry-default';
 
 export function ManualTimeEntry({ onEntryAdded }: { onEntryAdded?: () => void }) {
   const { user } = useRole();
@@ -21,6 +29,33 @@ export function ManualTimeEntry({ onEntryAdded }: { onEntryAdded?: () => void })
     clockOutTime: '17:00',
     notes: '',
   });
+  const [savedTemplate, setSavedTemplate] = useState<ManualEntryTemplate | null>(null);
+  const [saveAsDefault, setSaveAsDefault] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const stored = window.localStorage.getItem(MANUAL_ENTRY_TEMPLATE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored) as ManualEntryTemplate;
+        if (parsed.clockInTime && parsed.clockOutTime) {
+          setSavedTemplate(parsed);
+        }
+      }
+    } catch (error) {
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isOpen && savedTemplate) {
+      setFormData(prev => ({
+        ...prev,
+        clockInTime: savedTemplate.clockInTime,
+        clockOutTime: savedTemplate.clockOutTime,
+        notes: savedTemplate.notes ?? '',
+      }));
+    }
+  }, [isOpen, savedTemplate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,6 +85,24 @@ export function ManualTimeEntry({ onEntryAdded }: { onEntryAdded?: () => void })
         formData.notes || undefined
       );
 
+      const templateToPersist: ManualEntryTemplate | null = saveAsDefault
+        ? {
+            clockInTime: formData.clockInTime,
+            clockOutTime: formData.clockOutTime,
+            notes: formData.notes || undefined,
+          }
+        : savedTemplate;
+
+      if (typeof window !== 'undefined') {
+        if (templateToPersist && saveAsDefault) {
+          window.localStorage.setItem(MANUAL_ENTRY_TEMPLATE_KEY, JSON.stringify(templateToPersist));
+        } else if (!saveAsDefault && !templateToPersist) {
+          window.localStorage.removeItem(MANUAL_ENTRY_TEMPLATE_KEY);
+        }
+      }
+
+      setSavedTemplate(templateToPersist);
+
       push({
         title: 'Time Entry Added',
         description: `Entry saved for ${formData.date}`,
@@ -59,19 +112,33 @@ export function ManualTimeEntry({ onEntryAdded }: { onEntryAdded?: () => void })
       // Reset form
       setFormData({
         date: formatDate(new Date()),
-        clockInTime: '09:00',
-        clockOutTime: '17:00',
-        notes: '',
+        clockInTime: templateToPersist?.clockInTime ?? '09:00',
+        clockOutTime: templateToPersist?.clockOutTime ?? '17:00',
+        notes: templateToPersist?.notes ?? '',
       });
 
       setIsOpen(false);
       onEntryAdded?.();
     } catch (error) {
-      push({
-        title: 'Error',
-        description: 'Failed to add manual time entry',
-        variant: 'error'
-      });
+      if (error instanceof Error && error.message === 'TIME_ENTRY_OVERLAP') {
+        push({
+          title: 'Overlapping Entry',
+          description: 'This time range overlaps an existing entry for the same day. Adjust the times and try again.',
+          variant: 'error'
+        });
+      } else if (error instanceof Error && error.message === 'TIME_ENTRY_INVALID_RANGE') {
+        push({
+          title: 'Invalid Time Range',
+          description: 'Clock out time must be after clock in time.',
+          variant: 'error'
+        });
+      } else {
+        push({
+          title: 'Error',
+          description: 'Failed to add manual time entry',
+          variant: 'error'
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -81,6 +148,30 @@ export function ManualTimeEntry({ onEntryAdded }: { onEntryAdded?: () => void })
     setFormData(prev => ({
       ...prev,
       [field]: value
+    }));
+  };
+
+  const applySavedTemplate = () => {
+    if (!savedTemplate) return;
+    setFormData(prev => ({
+      ...prev,
+      clockInTime: savedTemplate.clockInTime,
+      clockOutTime: savedTemplate.clockOutTime,
+      notes: savedTemplate.notes ?? '',
+    }));
+  };
+
+  const clearSavedTemplate = () => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem(MANUAL_ENTRY_TEMPLATE_KEY);
+    }
+    setSavedTemplate(null);
+    setSaveAsDefault(false);
+    setFormData(prev => ({
+      ...prev,
+      clockInTime: '09:00',
+      clockOutTime: '17:00',
+      notes: '',
     }));
   };
 
@@ -162,6 +253,46 @@ export function ManualTimeEntry({ onEntryAdded }: { onEntryAdded?: () => void })
                 required
               />
             </div>
+          </div>
+
+          {savedTemplate && (
+            <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <span className="font-medium text-slate-700">
+                  Daily default: {savedTemplate.clockInTime} - {savedTemplate.clockOutTime}
+                </span>
+                <div className="flex gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={applySavedTemplate}>
+                    Use Saved Hours
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-red-600 hover:text-red-700"
+                    onClick={clearSavedTemplate}
+                  >
+                    Clear Default
+                  </Button>
+                </div>
+              </div>
+              {savedTemplate.notes && (
+                <p className="text-xs text-slate-500">Notes: {savedTemplate.notes}</p>
+              )}
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 pt-1 text-xs text-slate-600">
+            <input
+              id="remember-default-hours"
+              type="checkbox"
+              checked={saveAsDefault}
+              onChange={(e) => setSaveAsDefault(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+            />
+            <label htmlFor="remember-default-hours" className="cursor-pointer select-none">
+              Remember these hours for quick manual entry
+            </label>
           </div>
 
           <div className="space-y-2">

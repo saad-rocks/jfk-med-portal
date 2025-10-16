@@ -52,7 +52,6 @@ export default function Sessions() {
       setSessions(fetchedSessions);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load sessions');
-      console.error('Error loading sessions:', err);
     } finally {
       setLoading(false);
     }
@@ -78,7 +77,6 @@ export default function Sessions() {
       await loadSessions();
       alert('Session deleted successfully');
     } catch (err) {
-      console.error('Error deleting session:', err);
       alert('Failed to delete session: ' + (err instanceof Error ? err.message : 'Unknown error'));
     }
   };
@@ -93,7 +91,6 @@ export default function Sessions() {
       await loadSessions();
       alert('Session set as current successfully');
     } catch (err) {
-      console.error('Error setting session as current:', err);
       alert('Failed to set session as current: ' + (err instanceof Error ? err.message : 'Unknown error'));
     }
   };
@@ -111,7 +108,6 @@ export default function Sessions() {
       setShowAddModal(false);
       await loadSessions();
     } catch (err) {
-      console.error('Error saving session:', err);
       alert('Failed to save session: ' + (err instanceof Error ? err.message : 'Unknown error'));
     }
   };

@@ -85,7 +85,6 @@ export function AdminTimeManagement() {
       setEntries(filteredEntries);
       setUsers(staffUsers); // Only show staff in dropdown
     } catch (error) {
-      console.error('Error loading admin time data:', error);
       push({
         title: 'Error',
         description: 'Failed to load time management data',
@@ -153,14 +152,28 @@ export function AdminTimeManagement() {
 
       setEditingEntry(null);
       loadData();
-    } catch (error) {
-      push({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to update entry',
-        variant: 'error'
-      });
-    }
-  };
+      } catch (error) {
+        if (error instanceof Error && error.message === 'TIME_ENTRY_OVERLAP') {
+          push({
+            title: 'Overlapping Entry',
+            description: 'This adjustment conflicts with another entry for the same day.',
+            variant: 'error'
+          });
+        } else if (error instanceof Error && (error.message === 'TIME_ENTRY_INVALID_RANGE' || error.message.includes('after clock in'))) {
+          push({
+            title: 'Invalid Time Range',
+            description: 'Clock out time must be after clock in time.',
+            variant: 'error'
+          });
+        } else {
+          push({
+            title: 'Error',
+            description: error instanceof Error ? error.message : 'Failed to update entry',
+            variant: 'error'
+          });
+        }
+      }
+    };
 
   // Delete entry
   const handleDeleteEntry = async (entryId: string) => {

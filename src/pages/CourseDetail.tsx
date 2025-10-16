@@ -62,17 +62,14 @@ export default function CourseDetail() {
   const fetchCourseData = async () => {
     try {
       setLoading(true);
-      console.log('🔍 Fetching course data for courseId:', courseId);
       
       // Fetch course details
       if (!courseId) {
         throw new Error('Course ID is required');
       }
       const courseDoc = await getDoc(doc(db, 'courses', courseId));
-      console.log('📋 Course document exists:', courseDoc.exists());
       if (courseDoc.exists()) {
         const courseData = { ...courseDoc.data(), id: courseDoc.id } as Course;
-        console.log('✅ Course data fetched:', courseData);
         setCourse(courseData);
         
         // Fetch instructor details
@@ -82,7 +79,6 @@ export default function CourseDetail() {
           setInstructor(instructorSnapshot.docs[0].data() as User);
         }
       } else {
-        console.log('❌ Course document not found for ID:', courseId);
       }
 
       // Fetch assignments
@@ -115,11 +111,9 @@ export default function CourseDetail() {
           const usage = await getCourseWeightUsage(courseId);
           setWeightUsage(usage);
         } catch (e) {
-          console.error('Error loading weight usage:', e);
         }
       }
     } catch (error) {
-      console.error('Error fetching course data:', error);
     } finally {
       setLoading(false);
     }
@@ -203,7 +197,6 @@ export default function CourseDetail() {
       const overallGrade = totalWeight > 0 ? (totalWeightedPercentage / totalWeight) : 0;
       setStudentGradeData({ overallGrade, submittedCount, gradedCount, pendingCount });
     } catch (error) {
-      console.error('Error calculating student grade:', error);
     }
   };
 
@@ -230,7 +223,6 @@ export default function CourseDetail() {
       });
       setGradingMode('category');
     } catch (e) {
-      console.error('Error saving category weights:', e);
       alert('Failed to save grading scheme.');
     }
   };
@@ -251,7 +243,6 @@ export default function CourseDetail() {
       await updateDoc(doc(db, 'courses', courseId), { gradingFinalized: true });
       setIsFinalized(true);
     } catch (e) {
-      console.error('Error finalizing course:', e);
       alert('Failed to finalize course.');
     }
   };

@@ -6,16 +6,21 @@ import { Card, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { getCourseById, getEnrollmentsWithStudentDetails, createEnrollment } from "../lib/enrollments";
 import { getAllUsers, type UserProfile } from "../lib/users";
+import { useSystemSettings } from "../hooks/useSystemSettings";
+import { AlertTriangle } from "lucide-react";
 
 export default function CourseStudents() {
   const navigate = useNavigate();
   const { role } = useRole();
+  const { settings: systemSettings } = useSystemSettings();
   const { courseId } = useParams();
   const [loading, setLoading] = useState(true);
   const [course, setCourse] = useState<any>(null);
   const [enrolledIds, setEnrolledIds] = useState<Set<string>>(new Set());
   const [students, setStudents] = useState<UserProfile[]>([]);
   const [adding, setAdding] = useState<string | null>(null);
+
+  const enrollmentsDisabled = systemSettings?.allowEnrollment === false;
 
   useEffect(() => {
     const run = async () => {
@@ -43,6 +48,7 @@ export default function CourseStudents() {
 
   const enroll = async (studentId: string) => {
     if (!courseId) return;
+    if (enrollmentsDisabled && role !== 'admin') return;
     setAdding(studentId);
     try {
       await createEnrollment({ studentId, courseId, semesterId: "current", status: "enrolled" });
@@ -69,6 +75,12 @@ export default function CourseStudents() {
           <div className="text-slate-700 font-medium">
             {course ? `${(course as any).code} — ${(course as any).title}` : ""}
           </div>
+          {enrollmentsDisabled && role !== 'admin' && (
+            <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+              <AlertTriangle className="mt-0.5 h-4 w-4" />
+              <span>Course enrollments are currently paused by the administration.</span>
+            </div>
+          )}
           {loading ? (
             <div className="h-40 rounded-xl bg-slate-100 animate-pulse" />
           ) : eligible.length === 0 ? (
@@ -81,7 +93,13 @@ export default function CourseStudents() {
                     <div className="font-semibold text-slate-800">{s.name}</div>
                     <div className="text-sm text-slate-500">{s.email} • {s.mdYear || "MD"}</div>
                   </div>
-                  <Button size="sm" onClick={(e) => { e.preventDefault(); e.stopPropagation(); enroll(s.id!); }} disabled={adding === s.id}> {adding === s.id ? "Adding..." : "Add"}</Button>
+                  <Button
+                    size="sm"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); enroll(s.id!); }}
+                    disabled={adding === s.id || (enrollmentsDisabled && role !== 'admin')}
+                  >
+                    {adding === s.id ? "Adding..." : "Add"}
+                  </Button>
                 </div>
               ))}
             </div>

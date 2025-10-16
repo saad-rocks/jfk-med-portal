@@ -27,7 +27,6 @@ export async function createCourse(input: CourseInput): Promise<string> {
 
     return docRef.id;
   } catch (error) {
-    console.error('Error creating course:', error);
     throw new Error('Failed to create course');
   }
 }
@@ -55,7 +54,6 @@ export async function listCourses(): Promise<Array<Course & { id: string }>> {
 
     return results;
   } catch (error) {
-    console.error('Error fetching courses:', error);
     throw new Error('Failed to fetch courses');
   }
 }
@@ -64,7 +62,6 @@ export async function updateCourse(courseId: string, input: CourseInput): Promis
   const user = auth.currentUser;
   if (!user) throw new Error("Must be signed in");
 
-  console.log('🔧 Updating course:', courseId, 'User:', user.email, 'UID:', user.uid);
 
   const courseRef = doc(db, "courses", courseId);
   const updateData = {
@@ -76,13 +73,10 @@ export async function updateCourse(courseId: string, input: CourseInput): Promis
     description: input.description,
   };
 
-  console.log('🔧 Update data:', updateData);
 
   try {
     await updateDoc(courseRef, updateData);
-    console.log('✅ Course updated successfully');
   } catch (error) {
-    console.error('❌ Error updating course:', error);
     throw error;
   }
 }

@@ -7,6 +7,7 @@ import {
   query,
   where,
   getDocs,
+  getDoc,
   orderBy,
   Timestamp,
   writeBatch
@@ -39,6 +40,72 @@ export function calculateHours(clockIn: number, clockOut: number): number {
   return Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100; // Round to 2 decimal places
 }
 
+function createTimeTrackingError(message: string) {
+  const error: any = new Error(message);
+  error.code = message;
+  return error;
+}
+
+async function ensureNoOverlap(
+  userId: string,
+  date: string,
+  clockIn?: number,
+  clockOut?: number,
+  ignoreEntryId?: string
+): Promise<void> {
+  if (clockIn === undefined || clockOut === undefined) return;
+
+  const entries = await getTimeEntriesForDate(userId, date);
+  const hasConflict = entries.some(entry => {
+    if (!entry.id || entry.id === ignoreEntryId) return false;
+    if (entry.clockOut === undefined) return false;
+    // Overlap exists when time ranges intersect, allowing adjacent edges.
+    return clockIn < entry.clockOut && clockOut > entry.clockIn;
+  });
+
+  if (hasConflict) {
+    throw createTimeTrackingError("TIME_ENTRY_OVERLAP");
+  }
+}
+
+async function prepareTimeEntryUpdate(
+  id: string,
+  updates: Partial<TimeEntry>,
+  options?: { updatedBy?: string }
+) {
+  const docRef = doc(db, TIME_ENTRIES_COLLECTION, id);
+  const snapshot = await getDoc(docRef);
+
+  if (!snapshot.exists()) {
+    throw createTimeTrackingError("TIME_ENTRY_NOT_FOUND");
+  }
+
+  const existing = snapshot.data() as TimeEntry;
+  const nextDate = updates.date ?? existing.date;
+  const nextClockIn = updates.clockIn ?? existing.clockIn;
+  const nextClockOut = updates.clockOut ?? existing.clockOut;
+
+  if (
+    typeof nextClockIn === "number" &&
+    typeof nextClockOut === "number"
+  ) {
+    if (nextClockOut <= nextClockIn) {
+      throw createTimeTrackingError("TIME_ENTRY_INVALID_RANGE");
+    }
+    await ensureNoOverlap(existing.userId, nextDate, nextClockIn, nextClockOut, id);
+  }
+
+  const cleanUpdates = Object.fromEntries(
+    Object.entries({
+      ...updates,
+      updatedAt: Date.now(),
+      updatedBy: options?.updatedBy,
+    }).filter(([_, value]) => value !== undefined)
+  );
+
+  return { docRef, cleanUpdates };
+}
+
 // Time Entry CRUD operations
 export async function createTimeEntry(entry: Omit<TimeEntry, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
   try {
@@ -54,26 +121,15 @@ export async function createTimeEntry(entry: Omit<TimeEntry, 'id' | 'createdAt' 
     const docRef = await addDoc(collection(db, TIME_ENTRIES_COLLECTION), cleanEntry);
     return docRef.id;
   } catch (error) {
-    console.error("Error creating time entry:", error);
     throw error;
   }
 }
 
 export async function updateTimeEntry(id: string, updates: Partial<TimeEntry>): Promise<void> {
   try {
-    const docRef = doc(db, TIME_ENTRIES_COLLECTION, id);
-
-    // Filter out undefined values to prevent Firestore errors
-    const cleanUpdates = Object.fromEntries(
-      Object.entries({
-        ...updates,
-        updatedAt: Date.now(),
-      }).filter(([_, value]) => value !== undefined)
-    );
-
+    const { docRef, cleanUpdates } = await prepareTimeEntryUpdate(id, updates);
     await updateDoc(docRef, cleanUpdates);
   } catch (error) {
-    console.error("Error updating time entry:", error);
     throw error;
   }
 }
@@ -82,7 +138,6 @@ export async function deleteTimeEntry(id: string): Promise<void> {
   try {
     await deleteDoc(doc(db, TIME_ENTRIES_COLLECTION, id));
   } catch (error) {
-    console.error("Error deleting time entry:", error);
     throw error;
   }
 }
@@ -108,7 +163,6 @@ export async function getTimeEntriesForUser(userId: string, startDate?: string, 
   } catch (error: any) {
     // Handle index building error gracefully
     if (error.message && error.message.includes("index is currently building")) {
-      console.warn("Firebase index is still building. Using alternative query method.");
       // Fallback: Get all entries for user and sort/filter manually
       try {
         const q = query(
@@ -136,11 +190,9 @@ export async function getTimeEntriesForUser(userId: string, startDate?: string, 
           return b.clockIn - a.clockIn;
         });
       } catch (fallbackError) {
-        console.error("Fallback query also failed:", fallbackError);
       }
     }
 
-    console.error("Error fetching time entries:", error);
     throw error;
   }
 }
@@ -162,7 +214,6 @@ export async function getTimeEntriesForDate(userId: string, date: string): Promi
   } catch (error: any) {
     // Handle index building error gracefully
     if (error.message && error.message.includes("index is currently building")) {
-      console.warn("Firebase index is still building. Using alternative query method.");
       // Fallback: Get all entries for user and filter by date (less efficient but works)
       try {
         const q = query(
@@ -181,11 +232,9 @@ export async function getTimeEntriesForDate(userId: string, date: string): Promi
           .filter(entry => entry.date === date)
           .sort((a, b) => a.clockIn - b.clockIn);
       } catch (fallbackError) {
-        console.error("Fallback query also failed:", fallbackError);
       }
     }
 
-    console.error("Error fetching time entries for date:", error);
     throw error;
   }
 }
@@ -196,13 +245,16 @@ export async function startTimeSession(userId: string): Promise<string> {
     // Check if there's already an active session and clean it up
     const activeSession = await getActiveSession(userId);
     if (activeSession) {
-      console.log("Cleaning up existing active session:", activeSession.id);
       // Mark the existing session as inactive (don't throw error)
-      await updateDoc(doc(db, TIME_SESSIONS_COLLECTION, activeSession.id!), {
-        isActive: false,
-        endTime: Date.now(),
-        totalHours: calculateHours(activeSession.startTime, Date.now())
-      }).catch(err => console.warn("Could not update existing session:", err));
+      try {
+        await updateDoc(doc(db, TIME_SESSIONS_COLLECTION, activeSession.id!), {
+          isActive: false,
+          endTime: Date.now(),
+          totalHours: calculateHours(activeSession.startTime, Date.now())
+        });
+      } catch (err) {
+        // Silently handle error
+      }
     }
 
     const now = Date.now();
@@ -215,7 +267,6 @@ export async function startTimeSession(userId: string): Promise<string> {
     const docRef = await addDoc(collection(db, TIME_SESSIONS_COLLECTION), session);
     return docRef.id;
   } catch (error) {
-    console.error("Error starting time session:", error);
     throw error;
   }
 }
@@ -251,7 +302,6 @@ export async function stopTimeSession(userId: string): Promise<TimeEntry> {
     const entryId = await createTimeEntry(timeEntry);
     return { id: entryId, ...timeEntry, createdAt: now, updatedAt: now };
   } catch (error) {
-    console.error("Error stopping time session:", error);
     throw error;
   }
 }
@@ -274,7 +324,6 @@ export async function getActiveSession(userId: string): Promise<TimeCardSession 
     }
     return null;
   } catch (error) {
-    console.error("Error fetching active session:", error);
     throw error;
   }
 }
@@ -292,8 +341,10 @@ export async function createManualTimeEntry(
     const clockOut = new Date(`${date}T${clockOutTime}`).getTime();
 
     if (clockOut <= clockIn) {
-      throw new Error("Clock out time must be after clock in time");
+      throw createTimeTrackingError("TIME_ENTRY_INVALID_RANGE");
     }
+
+    await ensureNoOverlap(userId, date, clockIn, clockOut);
 
     const totalHours = calculateHours(clockIn, clockOut);
 
@@ -310,7 +361,6 @@ export async function createManualTimeEntry(
     const entryId = await createTimeEntry(timeEntry);
     return { id: entryId, ...timeEntry, createdAt: Date.now(), updatedAt: Date.now() };
   } catch (error) {
-    console.error("Error creating manual time entry:", error);
     throw error;
   }
 }
@@ -348,7 +398,6 @@ export async function getTimeTrackingStats(userId: string): Promise<TimeTracking
       currentSession: activeSession || undefined,
     };
   } catch (error) {
-    console.error("Error fetching time tracking stats:", error);
     throw error;
   }
 }
@@ -373,7 +422,6 @@ export async function getMonthlyReport(userId: string, userName: string, month: 
       generatedAt: Date.now(),
     };
   } catch (error) {
-    console.error("Error generating monthly report:", error);
     throw error;
   }
 }
@@ -406,7 +454,6 @@ export async function getAllTimeEntriesForDateRange(startDate: string, endDate: 
   } catch (error: any) {
     // Fallback: if compound index still fails, get all entries for date range and sort manually
     if (error.message && error.message.includes("index")) {
-      console.warn("Compound index failed, using simpler query");
       try {
         const q = query(
           collection(db, TIME_ENTRIES_COLLECTION),
@@ -427,11 +474,9 @@ export async function getAllTimeEntriesForDateRange(startDate: string, endDate: 
           return b.clockIn - a.clockIn;
         });
       } catch (fallbackError) {
-        console.error("Fallback query also failed:", fallbackError);
       }
     }
 
-    console.error("Error fetching all time entries:", error);
     throw error;
   }
 }
@@ -442,18 +487,11 @@ export async function updateTimeEntryAsAdmin(
   adminId: string
 ): Promise<void> {
   try {
-    // Filter out undefined values to prevent Firestore errors
-    const cleanUpdates = Object.fromEntries(
-      Object.entries({
-        ...updates,
-        updatedAt: Date.now(),
-        updatedBy: adminId,
-      }).filter(([_, value]) => value !== undefined)
-    );
-
-    await updateDoc(doc(db, TIME_ENTRIES_COLLECTION, entryId), cleanUpdates);
+    const { docRef, cleanUpdates } = await prepareTimeEntryUpdate(entryId, updates, {
+      updatedBy: adminId,
+    });
+    await updateDoc(docRef, cleanUpdates);
   } catch (error) {
-    console.error("Error updating time entry as admin:", error);
     throw error;
   }
 }

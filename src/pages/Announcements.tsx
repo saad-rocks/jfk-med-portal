@@ -390,7 +390,6 @@ export default function Announcements() {
           setCourses(data);
         }
       } catch (err) {
-        console.error("Failed to load courses:", err);
       }
     };
     loadCourses();
@@ -465,7 +464,6 @@ export default function Announcements() {
       setShowComposer(false);
       setEditingAnnouncement(null);
     } catch (err) {
-      console.error("Failed to save announcement:", err);
       // surface error via console / toast? (Toast system exists)
     } finally {
       setIsSubmitting(false);
@@ -480,7 +478,6 @@ export default function Announcements() {
       await deleteAnnouncement(announcement.id!);
       await refresh();
     } catch (err) {
-      console.error("Failed to delete announcement:", err);
     }
   };
 
@@ -489,7 +486,6 @@ export default function Announcements() {
       await updateAnnouncement(announcement.id!, { pinned: !announcement.pinned });
       await refresh();
     } catch (err) {
-      console.error("Failed to update announcement pin state:", err);
     }
   };
 

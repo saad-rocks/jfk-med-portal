@@ -33,7 +33,6 @@ export function useAnnouncements(options: UseAnnouncementsOptions = {}): UseAnno
       const items = await fetchAnnouncements(memoizedOptions);
       setAnnouncements(items);
     } catch (err) {
-      console.error("Failed to fetch announcements:", err);
       setError(err instanceof Error ? err.message : "Failed to load announcements");
     } finally {
       setLoading(false);
@@ -46,7 +45,6 @@ export function useAnnouncements(options: UseAnnouncementsOptions = {}): UseAnno
       const listenerOptions: AnnouncementListenerOptions = {
         ...memoizedOptions,
         onError: (err) => {
-          console.error("Announcements listener error:", err);
           setError(err instanceof Error ? err.message : "Failed to load announcements");
           setLoading(false);
         },

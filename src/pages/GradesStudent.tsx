@@ -124,7 +124,6 @@ export default function GradesStudent() {
               const userSubmissions = subs.filter((s) => studentIdSet.has(s.studentId));
               allSubmissions.push(...userSubmissions);
             } catch (error) {
-              console.error(`Error fetching submissions for assignment ${assignment.id}:`, error);
             }
           }
 
@@ -167,7 +166,6 @@ export default function GradesStudent() {
         grades.sort((a, b) => a.course.title.localeCompare(b.course.title));
         setCourseGrades(grades);
       } catch (error) {
-        console.error('Error fetching grades:', error);
       } finally {
         setLoading(false);
       }

@@ -485,9 +485,7 @@ export function testPdfMakeGenerator(): void {
     generatedAt: Date.now()
   };
 
-  console.log('🧪 Testing pdfmake PDF generator...');
   generateMonthlyTimeReportMake(sampleReport);
-  console.log('✅ pdfmake PDF generated successfully!');
 }
 
 // Export the functions

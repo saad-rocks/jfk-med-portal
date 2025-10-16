@@ -86,7 +86,6 @@ export async function getAllUsers(): Promise<UserProfile[]> {
       const q = query(usersRef, orderBy('createdAt', 'desc'));
       querySnapshot = await getDocs(q);
     } catch (orderByError) {
-      console.warn('OrderBy failed, trying without ordering:', orderByError);
       querySnapshot = await getDocs(usersRef);
     }
 
@@ -118,7 +117,6 @@ export async function getAllUsers(): Promise<UserProfile[]> {
 
     return users;
   } catch (error) {
-    console.error('Error fetching users:', error);
     // Return empty array instead of throwing to prevent app crash
     return [];
   }
@@ -139,7 +137,6 @@ export async function getUsersByRole(role: 'student' | 'teacher' | 'admin'): Pro
       );
       querySnapshot = await getDocs(q);
     } catch (orderByError) {
-      console.warn(`OrderBy failed for ${role}s, trying without ordering:`, orderByError);
       const q = query(usersRef, where('role', '==', role));
       querySnapshot = await getDocs(q);
     }
@@ -159,7 +156,6 @@ export async function getUsersByRole(role: 'student' | 'teacher' | 'admin'): Pro
     
     return users;
   } catch (error) {
-    console.error(`Error fetching ${role}s:`, error);
     throw new Error(`Failed to fetch ${role}s`);
   }
 }
@@ -178,7 +174,6 @@ export async function getUserById(userId: string): Promise<UserProfile | null> {
     }
     return null;
   } catch (error) {
-    console.error('Error fetching user:', error);
     throw new Error('Failed to fetch user');
   }
 }
@@ -216,7 +211,6 @@ export async function getUserByUid(uid: string): Promise<UserProfile | null> {
 
     return result;
   } catch (error) {
-    console.error('Error fetching user by UID:', error);
     throw new Error('Failed to fetch user by UID');
   }
 }
@@ -229,7 +223,6 @@ export async function updateUserLastLogin(uid: string): Promise<void> {
     const snapshot = await getDocs(q);
 
     if (snapshot.empty) {
-      console.warn('Cannot update lastLoginAt - user profile not found:', uid);
       return;
     }
 
@@ -240,9 +233,7 @@ export async function updateUserLastLogin(uid: string): Promise<void> {
     });
 
     userCache.delete(`uid_${uid}`);
-    console.log('Updated lastLoginAt for user:', uid);
   } catch (error) {
-    console.error('Error updating last login timestamp:', error);
   }
 }
 
@@ -315,7 +306,6 @@ export async function createUser(userData: CreateUserInput): Promise<UserProfile
     
     return newUser;
   } catch (error) {
-    console.error('Error creating user:', error);
     throw new Error('Failed to create user: ' + (error as Error).message);
   }
 }
@@ -392,7 +382,6 @@ export async function createUserWithoutSignIn(userData: CreateUserInput): Promis
     
     return newUser;
   } catch (error) {
-    console.error('Error creating user:', error);
     throw new Error('Failed to create user: ' + (error as Error).message);
   }
 }
@@ -400,14 +389,12 @@ export async function createUserWithoutSignIn(userData: CreateUserInput): Promis
 // Update user - Optimized with cache invalidation
 export async function updateUser(userId: string, updates: Partial<UserProfile>): Promise<void> {
   try {
-    console.log('🔄 Updating user:', userId, 'with updates:', updates);
 
     // Filter out undefined values to prevent Firestore errors
     const cleanUpdates = Object.fromEntries(
       Object.entries(updates).filter(([, value]) => value !== undefined)
     );
 
-    console.log('🧹 Clean updates:', cleanUpdates);
 
     const userRef = doc(db, USERS_COLLECTION, userId);
     await updateDoc(userRef, {
@@ -421,13 +408,7 @@ export async function updateUser(userId: string, updates: Partial<UserProfile>):
       userCache.delete(`uid_${uid}`);
     }
 
-    console.log('✅ User updated successfully');
   } catch (error) {
-    console.error('❌ Error updating user:', {
-      userId,
-      updates,
-      errorMessage: error instanceof Error ? error.message : 'Unknown error'
-    });
     throw new Error('Failed to update user: ' + (error instanceof Error ? error.message : 'Unknown error'));
   }
 }
@@ -438,7 +419,6 @@ export async function deleteUserProfile(userId: string): Promise<void> {
     const userRef = doc(db, USERS_COLLECTION, userId);
     await deleteDoc(userRef);
   } catch (error) {
-    console.error('Error deleting user profile:', error);
     throw new Error('Failed to delete user profile');
   }
 }
@@ -474,7 +454,6 @@ export async function searchUsers(searchTerm: string, role?: 'student' | 'teache
     
     return users;
   } catch (error) {
-    console.error('Error searching users:', error);
     throw new Error('Failed to search users');
   }
 }
@@ -505,7 +484,6 @@ export async function getUserStats(): Promise<{
 
     return stats;
   } catch (error) {
-    console.error('Error getting user stats:', error);
     // Return default stats instead of throwing
     const defaultStats = {
       totalUsers: 0,
@@ -562,7 +540,6 @@ export async function createStudentUser(userData: Omit<CreateUserInput, 'role'>,
 // Fix uid field for existing users who might be missing it
 export async function fixUserUids(): Promise<void> {
   try {
-    console.log('Fixing uid fields for existing users...');
 
     const usersRef = collection(db, USERS_COLLECTION);
     const querySnapshot = await getDocs(usersRef);
@@ -578,7 +555,6 @@ export async function fixUserUids(): Promise<void> {
         // For now, we'll set a placeholder uid based on email
         // In a real scenario, you'd need to match with Firebase Auth users
         const placeholderUid = `user_${doc.id}_${Date.now()}`;
-        console.log(`Setting placeholder uid for user ${data.email}: ${placeholderUid}`);
 
         batch.update(doc.ref, {
           uid: placeholderUid,
@@ -590,12 +566,9 @@ export async function fixUserUids(): Promise<void> {
 
     if (updateCount > 0) {
       await batch.commit();
-      console.log(`Updated ${updateCount} users with uid fields`);
     } else {
-      console.log('All users already have uid fields');
     }
   } catch (error) {
-    console.error('Error fixing user uids:', error);
     throw new Error('Failed to fix user uids');
   }
 }
@@ -606,12 +579,9 @@ export async function syncUserRole(uid: string, role: Role, mdYear?: MDYear): Pr
     const userProfile = await getUserByUid(uid);
     if (userProfile && userProfile.id) {
       await updateUser(userProfile.id, { role, mdYear });
-      console.log('✅ User role synchronized:', uid, role);
     } else {
-      console.warn('⚠️ Cannot sync role - user profile not found:', uid);
     }
   } catch (error) {
-    console.error('❌ Error syncing user role:', error);
     throw new Error('Failed to sync user role');
   }
 }
@@ -631,7 +601,6 @@ export async function batchUpdateUsers(updates: { id: string; data: Partial<User
 
     await batch.commit();
   } catch (error) {
-    console.error('Error batch updating users:', error);
     throw new Error('Failed to batch update users');
   }
 }

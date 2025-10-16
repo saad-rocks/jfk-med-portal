@@ -1109,11 +1109,9 @@ const sampleAnnouncements: Omit<Announcement, 'id'>[] = [
 ];
 
 export async function seedDatabase() {
-  console.log('🌱 Starting database seeding...');
   
   try {
     // Seed Users
-    console.log('👥 Seeding users...');
     const userIds: { [key: string]: string } = {};
     
     for (const user of sampleUsers) {
@@ -1125,11 +1123,9 @@ export async function seedDatabase() {
       if (user.uid) {
         userIds[user.uid] = userRef.id;
       }
-      console.log(`✅ Created user: ${user.name}`);
     }
     
     // Seed Courses
-    console.log('📚 Seeding courses...');
     const courseIds: { [key: string]: string } = {};
     
     for (const course of sampleCourses) {
@@ -1138,11 +1134,9 @@ export async function seedDatabase() {
         createdAt: serverTimestamp()
       });
       courseIds[course.code] = courseRef.id;
-      console.log(`✅ Created course: ${course.title}`);
     }
     
     // Seed Assignments
-    console.log('📝 Seeding assignments...');
     const assignmentIds: { [key: string]: string } = {};
     
     for (const assignment of sampleAssignments) {
@@ -1155,17 +1149,13 @@ export async function seedDatabase() {
           createdAt: serverTimestamp()
         });
         assignmentIds[assignment.title] = assignmentRef.id;
-        console.log(`✅ Created assignment: ${assignment.title} with ID: ${assignmentRef.id} for course ${assignment.courseId} (${actualCourseId})`);
       } else {
-        console.log(`⚠️ Skipping assignment ${assignment.title} - course ${assignment.courseId} not found`);
       }
     }
     
     // Debug: Log all assignment IDs for reference
-    console.log('🔍 Assignment IDs created:', assignmentIds);
     
     // Seed Enrollments
-    console.log('🎓 Seeding enrollments...');
     for (const enrollment of sampleEnrollments) {
       // Map the human-readable course ID to the actual Firestore document ID
       const actualCourseId = courseIds[enrollment.courseId];
@@ -1175,14 +1165,11 @@ export async function seedDatabase() {
           courseId: actualCourseId, // Use the actual Firestore document ID
           enrolledAt: serverTimestamp()
         });
-        console.log(`✅ Created enrollment for student ${enrollment.studentId} in course ${enrollment.courseId} (${actualCourseId})`);
       } else {
-        console.log(`⚠️ Skipping enrollment for course ${enrollment.courseId} - course not found`);
       }
     }
     
     // Seed Sessions
-    console.log('🕐 Seeding sessions...');
     for (const session of sampleSessions) {
       // Map the human-readable course ID to the actual Firestore document ID
       const actualCourseId = courseIds[session.courseId];
@@ -1192,14 +1179,11 @@ export async function seedDatabase() {
           courseId: actualCourseId, // Use the actual Firestore document ID
           createdAt: serverTimestamp()
         });
-        console.log(`✅ Created session: ${session.title} for course ${session.courseId} (${actualCourseId})`);
       } else {
-        console.log(`⚠️ Skipping session ${session.title} - course ${session.courseId} not found`);
       }
     }
     
     // Seed Announcements
-    console.log('📢 Seeding announcements...');
     for (const announcement of sampleAnnouncements) {
       try {
         // Filter out undefined values before creating the document
@@ -1211,31 +1195,18 @@ export async function seedDatabase() {
           ...cleanAnnouncement,
           publishedAt: serverTimestamp()
         });
-        console.log(`✅ Created announcement: ${announcement.title}`);
       } catch (error) {
-        console.error(`❌ Failed to create announcement: ${announcement.title}`, error);
       }
     }
     
     // Seed some sample submissions and grades
-    console.log('📤 Seeding sample submissions...');
     if (Object.keys(assignmentIds).length > 0 && Object.keys(courseIds).length > 0) {
       await seedSampleSubmissions(assignmentIds, courseIds);
     } else {
-      console.log('⚠️ No assignments or courses created, skipping submissions');
     }
     
-    console.log('🎉 Database seeding completed successfully!');
-    console.log('\n📊 Summary:');
-    console.log(`- Users: ${sampleUsers.length}`);
-    console.log(`- Courses: ${sampleCourses.length}`);
-    console.log(`- Assignments: ${sampleAssignments.length}`);
-    console.log(`- Enrollments: ${sampleEnrollments.length}`);
-    console.log(`- Sessions: ${sampleSessions.length}`);
-    console.log(`- Announcements: ${sampleAnnouncements.length}`);
     
   } catch (error) {
-    console.error('❌ Error seeding database:', error);
     throw error;
   }
 }
@@ -1447,7 +1418,6 @@ async function seedSampleSubmissions(assignmentIds: { [key: string]: string }, c
   for (const submission of sampleSubmissions) {
     // Skip submissions with undefined assignmentId
     if (!submission.assignmentId) {
-      console.log(`⚠️ Skipping submission for ${submission.studentId} - assignmentId is undefined`);
       continue;
     }
     
@@ -1459,13 +1429,11 @@ async function seedSampleSubmissions(assignmentIds: { [key: string]: string }, c
         gradedAt: serverTimestamp()
       }
     });
-    console.log(`✅ Created submission for ${submission.studentId} on ${submission.assignmentId}`);
   }
 }
 
 // Function to clear all seeded data (for testing)
 export async function clearSeededData() {
-  console.log('🧹 Clearing seeded data...');
   
   try {
     // Note: This is a destructive operation - use with caution
@@ -1477,12 +1445,9 @@ export async function clearSeededData() {
       const querySnapshot = await getDocs(collection(db, collectionName));
       const deletePromises = querySnapshot.docs.map(doc => deleteDoc(doc.ref));
       await Promise.all(deletePromises);
-      console.log(`✅ Cleared collection: ${collectionName}`);
     }
     
-    console.log('🎉 All seeded data cleared successfully!');
   } catch (error) {
-    console.error('❌ Error clearing data:', error);
     throw error;
   }
 }

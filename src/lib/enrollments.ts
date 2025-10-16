@@ -41,7 +41,6 @@ export async function diagnoseEnrollmentData(courseId: string): Promise<{
   issues: string[];
 }> {
   try {
-    console.log('🔍 Diagnosing enrollment data for course:', courseId);
 
     const issues: string[] = [];
     const uniqueStudentIds = new Set<string>();
@@ -50,7 +49,6 @@ export async function diagnoseEnrollmentData(courseId: string): Promise<{
     const enrollments = await listEnrollments();
     const courseEnrollments = enrollments.filter(e => e.courseId === courseId);
 
-    console.log('📊 Found', courseEnrollments.length, 'enrollments for course');
 
     courseEnrollments.forEach((enrollment) => {
       uniqueStudentIds.add(enrollment.studentId);
@@ -73,7 +71,6 @@ export async function diagnoseEnrollmentData(courseId: string): Promise<{
       issues
     };
   } catch (error) {
-    console.error('Error diagnosing enrollment data:', error);
     return {
       totalEnrollments: 0,
       uniqueStudentIds: [],
@@ -102,7 +99,6 @@ export async function createEnrollment(input: EnrollmentInput): Promise<string> 
 
     return ref.id;
   } catch (error) {
-    console.error('Error creating enrollment:', error);
     throw new Error('Failed to create enrollment');
   }
 }
@@ -184,7 +180,6 @@ export async function getEnrollmentsWithStudentDetails(courseId: string): Promis
 
     return enrollmentsWithDetails;
   } catch (error) {
-    console.error('Error getting enrollments with student details:', error);
     return [];
   }
 }
@@ -219,7 +214,6 @@ export async function listEnrollmentsForStudent(studentId: string): Promise<Arra
           snap.forEach(d => out.push({ id: d.id, ...(d.data() as Enrollment) }));
         }
       } catch (e) {
-        console.warn('Fallback resolve for listEnrollmentsForStudent failed:', e);
       }
     }
 
@@ -228,7 +222,6 @@ export async function listEnrollmentsForStudent(studentId: string): Promise<Arra
 
     return out;
   } catch (error) {
-    console.error('Error fetching enrollments for student:', error);
     throw new Error('Failed to fetch student enrollments');
   }
 }
@@ -240,7 +233,6 @@ export async function updateEnrollmentStatus(enrollmentId: string, status: Enrol
     // Invalidate all enrollment caches when data changes
     enrollmentCache.clear();
   } catch (error) {
-    console.error('Error updating enrollment status:', error);
     throw new Error('Failed to update enrollment status');
   }
 }
@@ -252,7 +244,6 @@ export async function deleteEnrollment(enrollmentId: string): Promise<void> {
     // Invalidate all enrollment caches when data changes
     enrollmentCache.clear();
   } catch (error) {
-    console.error('Error deleting enrollment:', error);
     throw new Error('Failed to delete enrollment');
   }
 }
@@ -265,17 +256,13 @@ export async function getCourseById(courseId: string): Promise<{ id: string; [ke
 // Debug function to check all enrollments
 export async function debugEnrollments(): Promise<Array<Enrollment & { id: string }>> {
   try {
-    console.log('🔍 Debugging all enrollments...');
     const allEnrollments = await listEnrollments();
-    console.log('📊 Total enrollments in DB:', allEnrollments.length);
 
     allEnrollments.forEach((enrollment, index) => {
-      console.log(`  ${index + 1}. Student: ${enrollment.studentId}, Course: ${enrollment.courseId}, Status: ${enrollment.status}`);
     });
 
     return allEnrollments;
   } catch (error) {
-    console.error('❌ Error debugging enrollments:', error);
     return [];
   }
 }
@@ -283,35 +270,21 @@ export async function debugEnrollments(): Promise<Array<Enrollment & { id: strin
 // Debug function to check database state
 export async function debugDatabaseState(): Promise<void> {
   try {
-    console.log('🔍 Checking database state...');
 
     // Check courses
     const coursesSnap = await getDocs(collection(db, "courses"));
     const courses = coursesSnap.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) }));
-    console.log(`📚 Courses in DB: ${courses.length}`);
-    courses.forEach(course => console.log(`  - ${(course as any).title} (${course.id})`));
 
     // Check users
     const usersSnap = await getDocs(collection(db, "users"));
     const users = usersSnap.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) }));
-    console.log(`👥 Total users in DB: ${users.length}`);
 
     const students = users.filter(u => (u as any).role === 'student');
     const teachers = users.filter(u => (u as any).role === 'teacher');
     const admins = users.filter(u => (u as any).role === 'admin');
 
-    console.log(`🎓 Students: ${students.length}`);
-    students.forEach(student => console.log(`  - ${(student as any).name} (${student.id}, uid: ${(student as any).uid})`));
-
-    console.log(`👨‍🏫 Teachers: ${teachers.length}`);
-    teachers.forEach(teacher => console.log(`  - ${(teacher as any).name} (${teacher.id}, uid: ${(teacher as any).uid})`));
-
-    console.log(`👑 Admins: ${admins.length}`);
-    admins.forEach(admin => console.log(`  - ${(admin as any).name} (${admin.id}, uid: ${(admin as any).uid})`));
-
     // Check enrollments
     const enrollments = await listEnrollments();
-    console.log(`📝 Enrollments in DB: ${enrollments.length}`);
 
     // Group enrollments by course
     const enrollmentsByCourse: { [courseId: string]: string[] } = {};
@@ -324,22 +297,18 @@ export async function debugDatabaseState(): Promise<void> {
 
     Object.entries(enrollmentsByCourse).forEach(([courseId, studentIds]) => {
       const course = courses.find(c => c.id === courseId);
-      console.log(`  📚 Course: ${(course as any)?.title || courseId} (${studentIds.length} students)`);
       studentIds.forEach(studentId => {
         const student = students.find(s => s.id === studentId);
-        console.log(`    👤 ${(student as any)?.name || 'Unknown'} (${studentId})`);
       });
     });
 
   } catch (error) {
-    console.error('❌ Error debugging database state:', error);
   }
 }
 
 // Create sample enrollments for testing
 export async function createSampleEnrollments(): Promise<void> {
   try {
-    console.log('🎯 Creating sample enrollments...');
 
     // Get all courses and students
     const coursesSnap = await getDocs(collection(db, "courses"));
@@ -348,17 +317,12 @@ export async function createSampleEnrollments(): Promise<void> {
     const courses = coursesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     const students = studentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-    console.log(`Found ${courses.length} courses and ${students.length} students`);
-    console.log('Courses:', courses.map(c => ({ id: c.id, title: (c as any).title })));
-    console.log('Students:', students.map(s => ({ id: s.id, uid: (s as any).uid, name: (s as any).name, email: (s as any).email })));
 
     if (courses.length === 0) {
-      console.log('❌ No courses found. Please create some courses first.');
       return;
     }
 
     if (students.length === 0) {
-      console.log('❌ No students found. Please create some student users first.');
       return;
     }
 
@@ -366,8 +330,6 @@ export async function createSampleEnrollments(): Promise<void> {
     for (const course of courses.slice(0, Math.min(3, courses.length))) { // Use first 3 courses
       const studentsForCourse = students.slice(0, Math.min(5, students.length)); // Enroll up to 5 students per course
 
-      console.log(`\n📚 Processing course: ${(course as any).title} (${course.id})`);
-      console.log(`👥 Enrolling ${studentsForCourse.length} students`);
 
       for (const student of studentsForCourse) {
         try {
@@ -381,18 +343,13 @@ export async function createSampleEnrollments(): Promise<void> {
             createdAt: Date.now()
           };
 
-          console.log(`➕ Creating enrollment: Student ${(student as any).name} (${student.id}) -> Course ${(course as any).title} (${course.id})`);
           await addDoc(collection(db, "enrollments"), enrollmentData);
         } catch (error) {
-          console.error(`❌ Error creating enrollment for student ${(student as any).name}:`, error);
         }
       }
     }
 
-    console.log('\n✅ Sample enrollments created successfully!');
-    console.log('🔄 Please refresh the page to see the updated enrollment counts.');
   } catch (error) {
-    console.error('❌ Error creating sample enrollments:', error);
     throw error;
   }
 }

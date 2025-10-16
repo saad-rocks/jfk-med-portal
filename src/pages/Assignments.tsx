@@ -50,7 +50,6 @@ export default function Assignments() {
         const currentUser = allUsers.find(u => u.email?.toLowerCase() === user.email?.toLowerCase());
         
         if (!currentUser?.id) {
-          console.error("❌ Teacher profile not found in database for email:", user.email);
           setTeacherCourses([]);
           setAssignments([]);
           setLoading(false);
@@ -58,9 +57,7 @@ export default function Assignments() {
         }
 
         // Get teacher assignments using the Firestore document ID
-        console.log("🔍 Getting teacher assignments for Firestore ID:", currentUser.id);
         const teacherAssignments = await getTeacherAssignments(currentUser.id);
-        console.log("📚 Teacher assignments found:", teacherAssignments);
         setTeacherCourses(teacherAssignments);
 
         // Get all assignments for teacher's courses with submission data
@@ -68,9 +65,7 @@ export default function Assignments() {
         const allCourses = await listCourses();
 
         for (const course of teacherAssignments) {
-          console.log("🔍 Getting assignments for course:", course.courseId);
           const courseAssignments = await listAssignments(course.courseId);
-          console.log("📝 Course assignments found:", courseAssignments);
 
           // Get course data
           const courseData = allCourses.find(c => c.id === course.courseId);
@@ -101,7 +96,6 @@ export default function Assignments() {
             allAssignments.push(enrichedAssignment);
           }
         }
-        console.log("📋 Total assignments found:", allAssignments);
         setAssignments(allAssignments);
       } else if (role === 'student') {
         // For students, get their Firestore document ID first
@@ -109,7 +103,6 @@ export default function Assignments() {
         const currentUser = studentUsers.find(u => u.email?.toLowerCase() === user.email?.toLowerCase());
 
         if (!currentUser?.id) {
-          console.error("❌ Student profile not found in database for email:", user.email);
           setAssignments([]);
           setLoading(false);
           return;
@@ -124,16 +117,13 @@ export default function Assignments() {
         const enrollmentsSnap = await getDocs(enrollmentsQuery);
         const enrolledCourseIds = enrollmentsSnap.docs.map(doc => doc.data().courseId);
 
-        console.log("🔍 Student enrolled in courses:", enrolledCourseIds);
 
         // Get assignments for all enrolled courses with enriched data
         const allAssignments: EnrichedAssignment[] = [];
         const allCourses = await listCourses();
 
         for (const courseId of enrolledCourseIds) {
-          console.log("🔍 Getting assignments for course:", courseId);
           const courseAssignments = await listAssignments(courseId);
-          console.log("📝 Course assignments found:", courseAssignments);
 
           // Get course data
           const courseData = allCourses.find(c => c.id === courseId);
@@ -179,7 +169,6 @@ export default function Assignments() {
         setAssignments(allAssignments);
       }
     } catch (error) {
-      console.error("Error fetching assignments:", error);
     } finally {
       setLoading(false);
     }

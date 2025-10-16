@@ -101,7 +101,6 @@ export default function Enrollments() {
           setSelectedCourseId((current) => current ?? courseDocs[0].id);
         }
       } catch (err) {
-        console.error("Error loading enrollment data:", err);
         setError(err instanceof Error ? err.message : "Failed to load enrollment data");
       }
     })();
@@ -298,7 +297,6 @@ export default function Enrollments() {
       setCreateStatus("enrolled");
       setFeedback("Student enrolled successfully.");
     } catch (err) {
-      console.error("Failed to create enrollment:", err);
       setError(err instanceof Error ? err.message : "Failed to create enrollment");
     } finally {
       setIsSubmitting(false);
@@ -318,7 +316,6 @@ export default function Enrollments() {
       setEnrollments((prev) => prev.filter((enrollment) => enrollment.id !== enrollmentId));
       setFeedback("Student removed from course.");
     } catch (err) {
-      console.error("Failed to delete enrollment:", err);
       setError(err instanceof Error ? err.message : "Failed to remove student");
     } finally {
       setIsSubmitting(false);
@@ -339,7 +336,6 @@ export default function Enrollments() {
       );
       setFeedback("Enrollment status updated.");
     } catch (err) {
-      console.error("Failed to update enrollment:", err);
       setError(err instanceof Error ? err.message : "Failed to update enrollment");
     }
   }

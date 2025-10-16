@@ -41,15 +41,12 @@ export async function createAttendanceRecord(
       throw new Error('Attendance status is required');
     }
 
-    console.log('Creating attendance record:', { courseId, studentId, date, status, notes });
-    console.log('Date type:', typeof date, 'Date value:', date);
 
     // Check if record already exists for this course, student, and date
     const existingRecords = await getAttendanceRecordsForCourseDate(courseId, date);
     const existingRecord = existingRecords.find(r => r.studentId === studentId);
 
     if (existingRecord) {
-      console.log('Updating existing attendance record');
 
       // Update existing record - only include notes field if it has a value
       const updateData: any = {
@@ -89,10 +86,8 @@ export async function createAttendanceRecord(
       attendanceData.notes = notes;
     }
 
-    console.log('Creating new attendance record:', attendanceData);
     const docRef = await addDoc(collection(db, ATTENDANCE_COLLECTION), attendanceData);
 
-    console.log('Attendance record created successfully:', docRef.id);
     return {
       id: docRef.id,
       courseId,
@@ -104,7 +99,6 @@ export async function createAttendanceRecord(
       ...(notes !== undefined ? { notes } : {})
     };
   } catch (error) {
-    console.error('Error creating attendance record:', error);
     throw new Error(`Failed to create attendance record: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
@@ -112,7 +106,6 @@ export async function createAttendanceRecord(
 // Get attendance records for a course on a specific date (optimized)
 export async function getAttendanceRecordsForCourseDate(courseId: string, date: string): Promise<AttendanceRecord[]> {
   try {
-    console.log('Querying attendance records for course:', courseId, 'date:', date);
 
     // Optimized: Use a single query with courseId, limit results and filter by date in memory
     // This avoids complex composite index requirements while still being efficient
@@ -123,7 +116,6 @@ export async function getAttendanceRecordsForCourseDate(courseId: string, date: 
     );
 
     const querySnapshot = await getDocs(q);
-    console.log('Query returned', querySnapshot.size, 'documents for course:', courseId);
 
     const records: AttendanceRecord[] = [];
 
@@ -145,10 +137,8 @@ export async function getAttendanceRecordsForCourseDate(courseId: string, date: 
       }
     });
 
-    console.log('Found', records.length, 'attendance records for', date);
     return records;
   } catch (error) {
-    console.error('Error fetching attendance records for course date:', error);
     return [];
   }
 }
@@ -169,13 +159,6 @@ export async function getCourseAttendanceRecords(courseId: string): Promise<Atte
 
     querySnapshot.forEach((doc) => {
       const data = doc.data();
-      console.log('Processing record:', {
-        id: doc.id,
-        courseId: data.courseId,
-        studentId: data.studentId,
-        date: data.date,
-        status: data.status
-      });
 
       records.push({
         id: doc.id,
@@ -189,10 +172,8 @@ export async function getCourseAttendanceRecords(courseId: string): Promise<Atte
       } as AttendanceRecord);
     });
 
-    console.log('Returning', records.length, 'attendance records');
     return records;
   } catch (error) {
-    console.error('Error fetching course attendance records:', error);
     return [];
   }
 }
@@ -200,7 +181,6 @@ export async function getCourseAttendanceRecords(courseId: string): Promise<Atte
 // Get attendance records for a specific student in a course
 export async function getStudentCourseAttendanceRecords(studentId: string, courseId: string): Promise<AttendanceRecord[]> {
   try {
-    console.log('Getting attendance records for student:', studentId, 'course:', courseId);
 
     // Use simpler query that doesn't require composite index
     const q = query(
@@ -210,7 +190,6 @@ export async function getStudentCourseAttendanceRecords(studentId: string, cours
     );
 
     const querySnapshot = await getDocs(q);
-    console.log('Query returned', querySnapshot.size, 'documents for student:', studentId);
 
     const records: AttendanceRecord[] = [];
 
@@ -219,13 +198,6 @@ export async function getStudentCourseAttendanceRecords(studentId: string, cours
 
       // Filter by courseId in memory
       if (data.courseId === courseId) {
-        console.log('Processing record for course:', {
-          id: doc.id,
-          courseId: data.courseId,
-          studentId: data.studentId,
-          date: data.date,
-          status: data.status
-        });
 
         records.push({
           id: doc.id,
@@ -240,10 +212,8 @@ export async function getStudentCourseAttendanceRecords(studentId: string, cours
       }
     });
 
-    console.log('Filtered', records.length, 'records for course', courseId);
     return records;
   } catch (error) {
-    console.error('Error fetching student course attendance records:', error);
     return [];
   }
 }
@@ -251,7 +221,6 @@ export async function getStudentCourseAttendanceRecords(studentId: string, cours
 // Get all attendance records for a student
 export async function getStudentAttendanceRecords(studentId: string): Promise<AttendanceRecord[]> {
   try {
-    console.log('Getting all attendance records for student:', studentId);
 
     // Use simpler query that doesn't require composite index
     const q = query(
@@ -261,19 +230,11 @@ export async function getStudentAttendanceRecords(studentId: string): Promise<At
     );
 
     const querySnapshot = await getDocs(q);
-    console.log('Query returned', querySnapshot.size, 'documents for student:', studentId);
 
     const records: AttendanceRecord[] = [];
 
     querySnapshot.forEach((doc) => {
       const data = doc.data();
-      console.log('Processing record:', {
-        id: doc.id,
-        courseId: data.courseId,
-        studentId: data.studentId,
-        date: data.date,
-        status: data.status
-      });
 
       records.push({
         id: doc.id,
@@ -287,10 +248,8 @@ export async function getStudentAttendanceRecords(studentId: string): Promise<At
       } as AttendanceRecord);
     });
 
-    console.log('Returning', records.length, 'attendance records');
     return records;
   } catch (error) {
-    console.error('Error fetching student attendance records:', error);
     return [];
   }
 }
@@ -312,7 +271,6 @@ export async function getAttendanceRecordById(recordId: string): Promise<Attenda
 
     return null;
   } catch (error) {
-    console.error('Error fetching attendance record:', error);
     return null;
   }
 }
@@ -337,7 +295,6 @@ export async function updateAttendanceRecord(
 
     await updateDoc(doc(db, ATTENDANCE_COLLECTION, recordId), updateData);
   } catch (error) {
-    console.error('Error updating attendance record:', error);
     throw new Error('Failed to update attendance record');
   }
 }
@@ -347,7 +304,6 @@ export async function deleteAttendanceRecord(recordId: string): Promise<void> {
   try {
     await deleteDoc(doc(db, ATTENDANCE_COLLECTION, recordId));
   } catch (error) {
-    console.error('Error deleting attendance record:', error);
     throw new Error('Failed to delete attendance record');
   }
 }
@@ -365,14 +321,6 @@ export async function bulkCreateAttendanceRecords(
       throw new Error('User must be authenticated to mark attendance');
     }
 
-    console.log('Bulk creating attendance records:', {
-      courseId,
-      date,
-      studentIdsCount: studentIds.length,
-      defaultStatus,
-      markedBy: auth.currentUser.uid
-    });
-    console.log('Bulk date type:', typeof date, 'Bulk date value:', date);
 
     const batch = writeBatch(db);
     const createdRecords: AttendanceRecord[] = [];
@@ -382,14 +330,11 @@ export async function bulkCreateAttendanceRecords(
     const existingRecords = await getAttendanceRecordsForCourseDate(courseId, date);
     const existingStudentIds = existingRecords.map(r => r.studentId);
 
-    console.log('Existing records for this date:', existingRecords.length);
-    console.log('Existing student IDs:', existingStudentIds);
 
     let processedCount = 0;
     for (const studentId of studentIds) {
       // Skip if record already exists
       if (existingStudentIds.includes(studentId)) {
-        console.log(`Skipping existing record for student: ${studentId}`);
         continue;
       }
 
@@ -421,16 +366,12 @@ export async function bulkCreateAttendanceRecords(
     }
 
     if (processedCount > 0) {
-      console.log(`Committing batch with ${processedCount} new records`);
       await batch.commit();
-      console.log('Bulk attendance records created successfully');
     } else {
-      console.log('No new records to create (all students already have attendance records)');
     }
 
     return createdRecords;
   } catch (error) {
-    console.error('Error bulk creating attendance records:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error during bulk attendance creation';
     throw new Error(`Failed to bulk create attendance records: ${errorMessage}`);
   }
@@ -445,9 +386,7 @@ export async function getCourseDateAttendanceStats(courseId: string, date: strin
   excused: number;
 }> {
   try {
-    console.log('Getting attendance stats for course:', courseId, 'date:', date);
     const records = await getAttendanceRecordsForCourseDate(courseId, date);
-    console.log('Found', records.length, 'attendance records for stats calculation');
 
     const stats = {
       total: records.length,
@@ -457,10 +396,8 @@ export async function getCourseDateAttendanceStats(courseId: string, date: strin
       excused: records.filter(r => r.status === 'excused').length
     };
 
-    console.log('Calculated attendance stats:', stats);
     return stats;
   } catch (error) {
-    console.error('Error getting course date attendance stats:', error);
     return { total: 0, present: 0, absent: 0, late: 0, excused: 0 };
   }
 }
@@ -492,7 +429,6 @@ export async function getCourseAttendanceStats(courseId: string): Promise<{
 
     return stats;
   } catch (error) {
-    console.error('Error getting course attendance stats:', error);
     return { totalRecords: 0, present: 0, absent: 0, late: 0, excused: 0, attendanceRate: 0 };
   }
 }
@@ -513,7 +449,6 @@ export async function getStudentCourseAttendanceHistory(studentId: string, cours
       notes: record.notes
     }));
   } catch (error) {
-    console.error('Error getting student course attendance history:', error);
     return [];
   }
 }
@@ -531,7 +466,6 @@ export async function calculateStudentCourseAttendancePercentage(studentId: stri
 
     return Math.round((presentCount / records.length) * 100);
   } catch (error) {
-    console.error('Error calculating student course attendance percentage:', error);
     return 0;
   }
 }
@@ -554,7 +488,6 @@ export async function getCourseAttendanceCalendar(courseId: string): Promise<{ [
 
     return calendarData;
   } catch (error) {
-    console.error('Error getting course attendance calendar:', error);
     return {};
   }
 }
@@ -573,7 +506,6 @@ export async function getCourseAttendanceDates(courseId: string): Promise<{ [dat
 
     return attendanceDates;
   } catch (error) {
-    console.error('Error getting course attendance dates:', error);
     return {};
   }
 }
@@ -591,7 +523,6 @@ export async function getStudentCourseAttendanceCalendar(studentId: string, cour
 
     return calendarData;
   } catch (error) {
-    console.error('Error getting student course attendance calendar:', error);
     return {};
   }
 }
@@ -602,7 +533,6 @@ export async function hasAttendanceBeenTakenForCourseDate(courseId: string, date
     const records = await getAttendanceRecordsForCourseDate(courseId, date);
     return records.length > 0;
   } catch (error) {
-    console.error('Error checking if attendance has been taken:', error);
     return false;
   }
 }
@@ -617,7 +547,6 @@ export async function getStudentCourseDateAttendance(
     const records = await getAttendanceRecordsForCourseDate(courseId, date);
     return records.find(r => r.studentId === studentId) || null;
   } catch (error) {
-    console.error('Error getting student course date attendance:', error);
     return null;
   }
 }
@@ -625,7 +554,6 @@ export async function getStudentCourseDateAttendance(
 // Helper function to format date for storage (YYYY-MM-DD)
 export function formatDateForStorage(date: Date): string {
   const formatted = date.toISOString().split('T')[0];
-  console.log('Formatting date for storage:', date.toString(), '->', formatted);
   return formatted;
 }
 
@@ -689,7 +617,6 @@ export async function diagnoseAttendanceData(courseId: string, date?: string): P
       issues
     };
   } catch (error) {
-    console.error('Error diagnosing attendance data:', error);
     return {
       totalRecords: 0,
       uniqueStudentIds: [],
@@ -706,8 +633,6 @@ export async function fixAttendanceStudentIds(courseId: string, idMapping: { [ol
   errors: string[];
 }> {
   try {
-    console.log('🔧 Fixing attendance student IDs for course:', courseId);
-    console.log('ID mapping:', idMapping);
 
     const { auth } = await import('../firebase');
     if (!auth.currentUser) {
@@ -726,7 +651,6 @@ export async function fixAttendanceStudentIds(courseId: string, idMapping: { [ol
     );
 
     const querySnapshot = await getDocs(q);
-    console.log('Found', querySnapshot.size, 'attendance records to process');
 
     querySnapshot.forEach((doc) => {
       const data = doc.data();
@@ -737,7 +661,6 @@ export async function fixAttendanceStudentIds(courseId: string, idMapping: { [ol
         const newStudentId = idMapping[oldStudentId];
 
         try {
-          console.log(`Updating record ${doc.id}: ${oldStudentId} -> ${newStudentId}`);
 
           batch.update(doc.ref, {
             studentId: newStudentId,
@@ -754,14 +677,11 @@ export async function fixAttendanceStudentIds(courseId: string, idMapping: { [ol
     });
 
     if (updated > 0) {
-      console.log(`Committing ${updated} updates...`);
       await batch.commit();
-      console.log('✅ Successfully updated', updated, 'attendance records');
     }
 
     return { updated, failed, errors };
   } catch (error) {
-    console.error('Error fixing attendance student IDs:', error);
     return {
       updated: 0,
       failed: 1,
@@ -776,7 +696,6 @@ export async function getAttendanceRecordsNeedingFix(courseId: string, correctSt
   incorrectIds: string[];
 }> {
   try {
-    console.log('🔍 Finding attendance records that need fixing...');
 
     const recordsToFix: AttendanceRecord[] = [];
     const incorrectIds = new Set<string>();
@@ -810,15 +729,12 @@ export async function getAttendanceRecordsNeedingFix(courseId: string, correctSt
       }
     });
 
-    console.log('Found', recordsToFix.length, 'records needing fixes');
-    console.log('Incorrect student IDs:', Array.from(incorrectIds));
 
     return {
       recordsToFix,
       incorrectIds: Array.from(incorrectIds)
     };
   } catch (error) {
-    console.error('Error getting records needing fix:', error);
     return {
       recordsToFix: [],
       incorrectIds: []
@@ -833,7 +749,6 @@ export async function quickMarkAttendanceBulk(
   attendanceUpdates: Array<{ studentId: string; status: AttendanceRecord['status'] }>
 ): Promise<{ success: number; failed: number; errors: string[] }> {
   try {
-    console.log('Starting bulk attendance update for', attendanceUpdates.length, 'students');
 
     const { auth } = await import('../firebase');
     if (!auth.currentUser) {
@@ -890,12 +805,10 @@ export async function quickMarkAttendanceBulk(
     // Commit all changes in one batch
     if (successCount > 0) {
       await batch.commit();
-      console.log(`Successfully updated ${successCount} attendance records`);
     }
 
     return { success: successCount, failed: failedCount, errors };
   } catch (error) {
-    console.error('Error in bulk attendance update:', error);
     return {
       success: 0,
       failed: attendanceUpdates.length,
@@ -927,7 +840,6 @@ export async function getAttendanceSummary(courseId: string, date: string): Prom
 
     return summary;
   } catch (error) {
-    console.error('Error getting attendance summary:', error);
     return { total: 0, present: 0, absent: 0, late: 0, excused: 0, marked: false };
   }
 }

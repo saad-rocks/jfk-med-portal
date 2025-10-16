@@ -52,7 +52,6 @@ export default function GradeSubmissions() {
           const assignmentData = assignmentDoc.data() as Assignment;
           setAssignment({ id: assignmentDoc.id, ...assignmentData });
         } else {
-          console.error('Assignment not found:', assignmentId);
           setAssignment(null);
         }
 
@@ -73,7 +72,6 @@ export default function GradeSubmissions() {
         setSubmissions(submissionsData);
 
       } catch (error) {
-        console.error("Error fetching data:", error);
       } finally {
         setLoading(false);
       }
@@ -120,7 +118,6 @@ export default function GradeSubmissions() {
       setGradingForm({ points: '', feedback: '' });
       setGradingSubmission(null);
     } catch (error) {
-      console.error("Error grading submission:", error);
     }
   };
 

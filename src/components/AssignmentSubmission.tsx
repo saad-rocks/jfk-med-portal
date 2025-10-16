@@ -75,7 +75,6 @@ const AssignmentSubmission = React.memo(function AssignmentSubmission({
           setValue("fileUrl", submission.fileUrl);
         }
       } catch (error) {
-        console.error("Error checking existing submission:", error);
       }
     };
 
@@ -128,7 +127,6 @@ const AssignmentSubmission = React.memo(function AssignmentSubmission({
       await saveSubmission(submissionData);
       onSuccess?.();
     } catch (error) {
-      console.error("Error submitting assignment:", error);
     } finally {
       setIsSubmitting(false);
     }
@@ -149,9 +147,7 @@ const AssignmentSubmission = React.memo(function AssignmentSubmission({
         const downloadURL = await getDownloadURL(snapshot.ref);
         
         setValue("fileUrl", downloadURL);
-        console.log("File uploaded successfully:", downloadURL);
       } catch (error) {
-        console.error("Error uploading file:", error);
         setUploadError("Failed to upload file. Please try again.");
         // Fallback to filename if upload fails
         setValue("fileUrl", file.name);
@@ -189,9 +185,7 @@ const AssignmentSubmission = React.memo(function AssignmentSubmission({
         const downloadURL = await getDownloadURL(snapshot.ref);
         
         setValue("fileUrl", downloadURL);
-        console.log("File uploaded successfully:", downloadURL);
       } catch (error) {
-        console.error("Error uploading file:", error);
         setUploadError("Failed to upload file. Please try again.");
         // Fallback to filename if upload fails
         setValue("fileUrl", file.name);

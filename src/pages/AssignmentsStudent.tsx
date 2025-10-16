@@ -68,7 +68,6 @@ export default function AssignmentsStudent() {
       const assignmentsData = await listAssignments(courseId);
       setAssignments(assignmentsData);
     } catch (error) {
-      console.error("Error fetching assignments:", error);
     } finally {
       setLoading(false);
     }
@@ -110,7 +109,6 @@ export default function AssignmentsStudent() {
               isDueSoon
             };
           } catch (error) {
-            console.error(`Error fetching submission for assignment ${assignment.id}:`, error);
             const now = Date.now();
             const daysUntilDue = Math.ceil((assignment.dueAt - now) / (1000 * 60 * 60 * 24));
             // When error occurs, assume no submission for safety
@@ -129,7 +127,6 @@ export default function AssignmentsStudent() {
 
       setAssignmentsWithSubmissions(assignmentsWithSubs);
     } catch (error) {
-      console.error("Error fetching submissions:", error);
     }
   };
 

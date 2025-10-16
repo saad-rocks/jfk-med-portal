@@ -78,7 +78,6 @@ export default function EditAssignment({
         const remaining = Math.max(0, 100 - totalExcluding);
         setWeightUsage({ total: totalExcluding, remaining });
       } catch (e) {
-        console.error('Error loading weight usage for edit:', e);
         setWeightUsage(null);
       }
     })();
@@ -106,7 +105,6 @@ export default function EditAssignment({
   const onSubmit = async (data: EditAssignmentFormData) => {
     if (!user) return;
     if (!assignment.id) {
-      console.error("Assignment ID is missing");
       return;
     }
 
@@ -121,7 +119,6 @@ export default function EditAssignment({
       await updateAssignment(assignment.id, assignmentData);
       onSuccess?.();
     } catch (error) {
-      console.error("Error updating assignment:", error);
     } finally {
       setIsSubmitting(false);
     }
